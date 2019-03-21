@@ -132,11 +132,7 @@ permute <- function(level, cols) {
     if (length(cols) == 0) {
         output <- suffixes;
     } else {
-        if (level == cols[1]) {
-            temp <- permute(level - 1, cols[-1]);
-        } else {
-            temp <- permute(level - 1, cols);
-        }
+        temp <- permute(level + 1, cols[-1]);
 
         for (string in temp) {
 
@@ -154,8 +150,6 @@ permute <- function(level, cols) {
 
     return(output);
 }
-
-
 
 ## With definitions of truth table in place, now we can create
 ## functions to calculate various definitions of mutual information.
