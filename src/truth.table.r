@@ -19,6 +19,10 @@
 
 ## Returns an 'outcome' class object.
 outcome <- function(out, prob) {
+    if (sum(prob) != 1) {
+        cat("Probabilities must sum to one.\n");
+        stop();
+    }
     return(structure(list(out=out, prob=prob), class="outcome"));
 }
 
