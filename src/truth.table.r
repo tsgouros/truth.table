@@ -191,6 +191,7 @@ calc.prob.table <- function(tt, input.probs) {
 ## permute(1, c(-1,2,3)) ->
 ##      c(".000" ".100" ".010" ".110" ".001" ".101" ".011" ".111")
 ##
+## Don't use this directly, use the 'permute' function, below.
 permute.recurse <- function(level, outcomes, cols) {
 
     output <- c();
@@ -221,11 +222,74 @@ permute.recurse <- function(level, outcomes, cols) {
     return(output);
 }
 
-## Make this function accept a bunch of input outcomes and an output
-## outcomes, and the cols arg in some format to refer to them both.  It
-## can sort them together as well as be the initiator of permute.recurse().
-permute <- function(outcomes, cols) {
-    return(permute.recurse(1, outcomes, cols));
+## This function accepts a bunch of input outcomes and one or more output
+## outcomes, and a cols argument.  It returns a list of strings
+## representing all the possible permutations of the input and output
+## outcome objects, as indicated by the cols argument.
+##
+## The cols argument is either a list of the column numbers that are to be
+## permuted, or a list of elements, one to each column, with positive
+## values corresponding to elements to be permuted, and negative numbers
+## to wildcards.
+##
+## Examples:
+## > inp
+## [[1]]
+##  0 (0.5)  1 (0.5)
+##
+## [[2]]
+##  0 (0.55)  1 (0.45)
+##
+## > permute(inp)
+## [1] "00" "10" "01" "11"
+## > permute(inp,cols=c(1,-1))
+## [1] "0." "1."
+## > permute(inp,cols=c(-1,-1))
+## [1] ".."
+## > permute(inp,cols=c(2))
+## [1] ".0" ".1"
+## > permute(inp,cols=c(1))
+## [1] "0." "1."
+## > permute(inp,out=outcome(c("0","1"),prob=c(0.3,0.7)),cols=c(1))
+## [1] "0.." "1.."
+## > permute(inp,out=outcome(c("0","1"),prob=c(0.3,0.7)),cols=c(1,3))
+## [1] "0.0" "1.0" "0.1" "1.1"
+## > permute(inp,out=outcome(c("0","1"),prob=c(0.3,0.7)))
+## [1] "000" "100" "010" "110" "001" "101" "011" "111"
+## > permute(inp,out=outcome(c("0","1"),prob=c(0.3,0.7)),cols=c(3,1))
+## [1] "0.0" "1.0" "0.1" "1.1"
+##
+permute <- function(input.outcomes, output.outcomes=0, cols=0) {
+
+    outcome.list <- input.outcomes;
+    if (!missing(output.outcomes)) {
+        if (class(output.outcomes) == "outcome") {
+            outcome.list <- append(outcome.list, list(output.outcomes));
+        } else if (class(output.outcomes) == "list") {
+            outcome.list <- append(outcome.list, output.outcomes);
+        }
+    }
+
+    ## If there is no cols argument, just return the permutation of all
+    ## the outcomes.
+    if (missing(cols)) {
+        cols <- rep(1, length(outcome.list));
+    }
+
+    ## If cols is short, then presumably it is of the form c(2,3) which
+    ## implies produce a permutation of columns 2 and 3, and use wildcards
+    ## for the other columns.
+    if (length(cols) != length(outcome.list)) {
+        tmp <- rep(-1, length(outcome.list));
+
+        for (k in cols) {
+            tmp[k] <- 1;
+        }
+
+        cols <- tmp;
+    }
+
+    return(permute.recurse(1, outcome.list, cols));
 }
 
 ## With definitions of truth table in place, now we can create functions to
