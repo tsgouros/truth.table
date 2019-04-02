@@ -368,7 +368,7 @@ calc.output.probs <- function(tt, input.probs) {
 ## Now we move to calculating the relative entropy between a columns of
 ## a truth table's input and its output.
 
-mutual <- function(tt, input.probs, col) {
+mutual <- function(tt, input.probs, col, inspect=F) {
 
     output.probs <- calc.output.probs(tt, input.probs);
 
@@ -376,9 +376,19 @@ mutual <- function(tt, input.probs, col) {
 
     joint.probs <- calc.probs(tt, input.probs, c(col, output.col));
 
-    ## We are using the KL divergence to calculate the mutual information.
-    ## So we need the product of the input probabilities corresponding to
-    ## the elements in the string for each probability.
+    if (inspect) {
+        cat("vals: prob\n");
+        for (i in 1:length(joint.probs)) {
+            cat(names(joint.probs)[i], ": (", joint.probs[[i]], ")\n", sep="");
+        }
+        for (i in 1:2) cat("---------");
+        cat("  >> joint, product\n");
+    }
+
+    ## We are using the KL divergence (relative entropy) to calculate the
+    ## mutual information.  So we need the product of the input
+    ## probabilities corresponding to the elements in the string for each
+    ## probability.
     out <- 0;
     for (i in 1:length(joint.probs)) {
 
@@ -389,6 +399,12 @@ mutual <- function(tt, input.probs, col) {
         output.char <- chars[output.col];
 
         prod.prob <- input.probs[[col]][[input.char]] * output.probs[[output.char]];
+
+        if (inspect)
+            cat(" ", input.char, " (", input.probs[[col]][[input.char]], ") ",
+                " ", output.char, " (", output.probs[[output.char]], ") ",
+                " >> ", joint.probs[[i]], " ,",  prod.prob,"\n", sep="");
+
         if (joint.probs[[i]] != 0) {
             out <- out + joint.probs[[i]] * log(joint.probs[[i]] / prod.prob, base=2);
         }
@@ -396,6 +412,55 @@ mutual <- function(tt, input.probs, col) {
     return(out);
 }
 
+## Gets us the total mutual information, from all the inputs and the output.
+mutual.total <- function(tt, input.probs, inspect=F) {
+
+    output.probs <- calc.output.probs(tt, input.probs);
+
+    output.col <- length(input.probs) + 1;
+
+    joint.probs <- calc.probs(tt, input.probs, 1:output.col);
+    if (inspect) {
+        cat("vals: prob\n");
+        for (i in 1:length(joint.probs)) {
+            cat(names(joint.probs)[i], ": (", joint.probs[[i]], ")\n", sep="");
+        }
+        for (i in 1:output.col) cat("---------");
+        cat(" >> joint, product\n");
+    }
+
+    ## We are using the KL divergence to calculate the mutual information.
+    ## So we need the product of the input probabilities corresponding to
+    ## the elements in the string for each probability.
+    out <- 0;
+    for (i in 1:length(joint.probs)) {
+
+        ## Parse names(joint.probs)[i] to find the relevant symbols for
+        ## this component of the joint distribution.
+        chars <- strsplit(names(joint.probs)[i], c())[[1]];
+        prod.prob <- 1;
+
+        for (col in 1:output.col) {
+
+            char <- chars[col];
+
+            if (col != output.col) {
+                prod.prob <- prod.prob * input.probs[[col]][[char]];
+                if (inspect) cat(" ", char, " (", input.probs[[col]][[char]], ") ",
+                                 sep="");
+            } else {
+                prod.prob <- prod.prob * output.probs[[char]];
+                if (inspect) cat(" ", char, " (", output.probs[[char]], ") ",
+                                 sep="");
+            }
+        }
+        if (inspect) cat(" >> ",joint.probs[[i]]," ,",  prod.prob,"\n", sep="");
+        if (joint.probs[[i]] != 0) {
+            out <- out + joint.probs[[i]] * log(joint.probs[[i]] / prod.prob, base=2);
+        }
+    }
+    return(out);
+}
 
 
 ## The simple information content of an array of probabilities.
@@ -447,6 +512,25 @@ KL1 <- function(pq, p) {
 }
 
 
+trial1 <- list();
+trial1 <- append(trial1, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+trial1 <- append(trial1, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+
+trial2 <- list();
+trial2 <- append(trial2, list(outcome(out=c("0","1"),prob=c(0.6,0.4))));
+trial2 <- append(trial2, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+
+trial3 <- list();
+trial3 <- append(trial3, list(outcome(out=c("0","1"),prob=c(0.7,0.3))));
+trial3 <- append(trial3, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+
+trial4 <- list();
+trial4 <- append(trial4, list(outcome(out=c("0","1"),prob=c(0.8,0.2))));
+trial4 <- append(trial4, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+
+trial5 <- list();
+trial5 <- append(trial5, list(outcome(out=c("0","1"),prob=c(0.9,0.1))));
+trial5 <- append(trial5, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
 
 
 
