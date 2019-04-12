@@ -94,6 +94,8 @@ truth.table <- function(inputs, outcomes) {
                           outcomes=outcomes), class="truth.table"));
 }
 
+
+
 ## Here's an AND gate
 AND.tt <- truth.table(inputs=data.frame(in1=c("0","0","1","1"),
                                         in2=c("0","1","0","1")),
@@ -101,6 +103,22 @@ AND.tt <- truth.table(inputs=data.frame(in1=c("0","0","1","1"),
                                     outcome(out=c("0"),prob=c(1)),
                                     outcome(out=c("0"),prob=c(1)),
                                     outcome(out=c("1"),prob=c(1))));
+
+## Here's an XOR gate
+XOR.tt <- truth.table(inputs=data.frame(in1=c("0","0","1","1"),
+                                        in2=c("0","1","0","1")),
+                      outcomes=list(outcome(out=c("0"),prob=c(1)),
+                                    outcome(out=c("1"),prob=c(1)),
+                                    outcome(out=c("1"),prob=c(1)),
+                                    outcome(out=c("0"),prob=c(1))));
+
+## Here's an adder gate
+ADD.tt <- truth.table(inputs=data.frame(in1=c("0","0","1","1"),
+                                        in2=c("0","1","0","1")),
+                      outcomes=list(outcome(out=c("0"),prob=c(1)),
+                                    outcome(out=c("1"),prob=c(1)),
+                                    outcome(out=c("2"),prob=c(1)),
+                                    outcome(out=c("3"),prob=c(1))));
 
 ## Here's a sucky AND gate, that has trouble getting the right answer
 ## for a couple of combinations.
@@ -462,14 +480,87 @@ mutual.total <- function(tt, input.probs, inspect=F) {
     return(out);
 }
 
+try <- function(tt, input.probs) {
+
+    HX1 <- H(input.probs[[1]]);
+    HX2 <- H(input.probs[[2]]);
+    cat(" Input 1 information H(X1): ", HX1, "\n");
+    cat(" Input 2 information H(X2): ", HX2, "\n");
+    HY <- H(calc.output.probs(tt, input.probs));
+    cat(" Output information  H(Y):  ", HY, "\n");
+    cat(" Mutual 1/O  I(X1;Y):       ", mutual(tt, input.probs, 1), "\n");
+    cat(" Mutual 2/O  I(X2;Y):       ", mutual(tt, input.probs, 2), "\n");
+
+    sum.mutual <- mutual(tt, input.probs, 1) + mutual(tt, input.probs, 2);
+    cat(" Sum mutual I(X1;Y)+I(X2;Y):", sum.mutual, "\n");
+
+    cat(" Sum mutual diff H(Y)-sum:  ",
+        H(calc.output.probs(tt, input.probs)) - sum.mutual, "\n");
+    cat(" Total Mutual I(X1;X2;Y):   ", mutual.total(tt, input.probs), "\n");
+    cat(" Ratio 1 Isum/H(Y):         ", sum.mutual / HY, "\n");
+    cat(" E(H(X1))                   ",
+        ExH(input.probs[[1]], input.probs[[2]]), "\n");
+    cat(" E(H(X2))                   ",
+        ExH(input.probs[[2]], input.probs[[1]]), "\n");
+    cat(" E(mutual X1;Y)             ",
+        ExH(calc.output.probs(tt, input.probs), input.probs[[1]]), "\n");
+    cat(" E(mutual X2;Y)             ",
+        ExH(calc.output.probs(tt, input.probs), input.probs[[2]]), "\n");
+    cat(" Sum H(X1) + I(X2;Y):        ",  HX1 + mutual(tt, input.probs, 1), "\n");
+    cat(" Sum H(X2) + I(X1;Y):        ",  HX2 + mutual(tt, input.probs, 2), "\n");
+    ## cat(" H(Y)-E(H(X1)):             ",
+    ##     HY - ExH(input.probs[[1]],input.probs[[2]]), "\n");
+    ## cat(" H(Y)-E(H(X2)):             ",
+    ##     HY - ExH(input.probs[[2]],input.probs[[1]]), "\n");
+    ## cat(" H(Y)-E(H(X1)) - I(X2;Y):   ",
+    ##     HY - HX1 - mutual(tt, input.probs, 2), "\n");
+    ## cat(" H(Y)-E(H(X2)) - I(X1;Y):   ",
+    ##     HY - HX2 - mutual(tt, input.probs, 1), "\n");
+##        HY - ExH(input.probs[[2]],input.probs[[1]]) - mutual(tt, input.probs, 1), "\n");
+    cat(" H(Y)-E(H(X1))-E(H(X2)):    ",
+        H(calc.output.probs(tt, input.probs)) - ExH(input.probs[[2]],input.probs[[1]]) - ExH(input.probs[[1]],input.probs[[2]]), "\n");
+
+
+
+}
 
 ## The simple information content of an array of probabilities.
-H <- function(ps) {
+H <- function(ps, inspect=F) {
     sum <- 0;
     for (p in ps) {
         pnum <- as.numeric(p);
+        if (inspect) {
+            cat("sum:", sum, "- (", pnum, ")log(", pnum, ")\n");
+        }
         if (pnum != 0) {
             sum <- sum - pnum * log(pnum, base=2);
+        }
+    }
+    return(sum);
+}
+
+## Expected value of some information, averaged with a second set of
+## probabilities (from an outcome class object).  Ps and pmod must be the
+## same length.
+ExH <- function(ps, pmod, inspect=F) {
+    sum <- 0;
+    if (class(pmod) != "outcome") {
+        cat("need an outcome object as the second argument.\n");
+        stop();
+    }
+    if (length(ps) != length(pmod)) {
+        cat("Both arguments must be the same length.\n");
+        stop();
+    }
+
+    for (i in 1:length(ps)) {
+        pnum <- as.numeric(ps[i]);
+        if (inspect) {
+            cat("sum:", sum, "-", pmod[[i]], "* (", pnum,
+                ")log(", pnum, ")\n");
+        }
+        if (pnum != 0) {
+            sum <- sum - pmod[[i]] * pnum * log(pnum, base=2);
         }
     }
     return(sum);
@@ -531,6 +622,30 @@ trial4 <- append(trial4, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
 trial5 <- list();
 trial5 <- append(trial5, list(outcome(out=c("0","1"),prob=c(0.9,0.1))));
 trial5 <- append(trial5, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+
+trial6 <- list();
+trial6 <- append(trial6, list(outcome(out=c("0","1"),prob=c(0.9,0.1))));
+trial6 <- append(trial6, list(outcome(out=c("0","1"),prob=c(0.3,0.7))));
+
+trial7 <- list();
+trial7 <- append(trial7, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+trial7 <- append(trial7, list(outcome(out=c("0","1"),prob=c(1.0,0.0))));
+
+trial8 <- list();
+trial8 <- append(trial8, list(outcome(out=c("0","1"),prob=c(0.5,0.5))));
+trial8 <- append(trial8, list(outcome(out=c("0","1"),prob=c(0.0,1.0))));
+
+trial9 <- list();
+trial9 <- append(trial9, list(outcome(out=c("0","1"),prob=c(0.6,0.4))));
+trial9 <- append(trial9, list(outcome(out=c("0","1"),prob=c(0.6,0.4))));
+
+triala <- list();
+triala <- append(triala, list(outcome(out=c("0","1"),prob=c(0.7,0.3))));
+triala <- append(triala, list(outcome(out=c("0","1"),prob=c(0.7,0.3))));
+
+trialb <- list();
+trialb <- append(trialb, list(outcome(out=c("0","1"),prob=c(0.6,0.4))));
+trialb <- append(trialb, list(outcome(out=c("0","1"),prob=c(0.7,0.3))));
 
 
 
