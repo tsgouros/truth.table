@@ -2,6 +2,8 @@
 ### associated probabilities, and a gate object, to contain a list of
 ### alphabets, and a function to transform inputs to an output.
 
+library(plyr)
+
 gate.id.counter <- 0;
 connection.id.counter <- 0;
 
@@ -554,6 +556,86 @@ gate.edgeList <- function(g, prefix="", inspect=FALSE) {
     }
     return(out.edgeList);
 }
+
+## Sorts through the edge list and outputs an edge list that references the
+## id field of the node list.
+gate.simplify.edgeList <- function(edges, nodes) {
+
+    ## Get the easy matches out of the way with mdply.
+    findId <- function(id, toLabel, fromLabel) {
+
+        fromId <- fromLabel;
+        toId <- toLabel;
+
+        for (i in 1:length(nodes$label)) {
+            if (grepl(paste("^", nodes$label[i], "$", sep=""), fromLabel)) {
+                fromId <- nodes$id[i];
+            }
+
+            if (grepl(paste("^", nodes$label[i], "$", sep=""), toLabel)) {
+                toId <- nodes$id[i];
+            }
+        }
+        return(data.frame(from=fromId, to=toId));
+    }
+
+    out.edgeList <- mdply(edges, findId);
+
+    if(TRUE) return(out.edgeList);
+
+    findOriginId <- function(fromString, edgeList, nodeList) {
+
+        if (length(fromString) == 0) return(0);
+
+        cat(">>>fromString:", fromString, "\n");
+        ## grepl returns an array of T/F. "sum" makes an ok "or".
+        if (sum(grepl(paste("^", fromString, sep=""), nodeList$label))) {
+
+            ## If we're here, we've found the string in the node list...
+            fromLoc <- grep(paste("^", fromString, sep=""), nodeList$label);
+
+            ## So return the corresponding index.
+            return(nodeList$id[fromLoc]);
+        } else {
+            ## We didn't find it in the nodelist, so grab the corresponding
+            ## "to" and try again, recursively.
+
+            ## First, try it 'as is.'
+            toLoc <- grep(paste("^", fromString, sep=""), edgeList$toLabel);
+
+            if (length(toLoc) > 0) {
+
+                return(findOriginId(edgeList$fromLabel[toLoc],
+                                    edgeList, nodeList));
+
+            } else {
+
+                ## Try removing the last piece of the label.
+                fLab <- strsplit(fromString, "\\.")[[1]];
+                fstring <- paste(fLab[1:(length(fLab)-1)], collapse=".");
+                return(findOriginId(fstring, edgeList, nodeList));
+
+            }
+        }
+    }
+
+    ## We have all the matches, except that lots of the "from" indications
+    ## have to be traced back to their origin.
+    for (i in 1:length(out.edgeList$from)) {
+        ## If it's a plain number, no need.
+        if (!grepl("^[0-9]+$", out.edgeList$from[i])) {
+
+            ## Find this in the to list and fix the from.
+            out.edgeList$from[i] <-
+                findOriginId(out.edgeList$from[i], edges, nodes);
+
+        }
+    }
+
+    return(out.edgeList);
+}
+
+
 
 ## TBD:
 ## Should add color and shape info to node and edge lists.
