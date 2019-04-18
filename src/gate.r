@@ -2,6 +2,8 @@
 ### associated probabilities, and a gate object, to contain a list of
 ### alphabets, and a function to transform inputs to an output.
 
+gate.id.counter <- 0;
+connection.id.counter <- 0;
 
 ## A class to hold a type and range for some gate input.
 inputType <- function(baseType="symbol", range=c("0","1")) {
@@ -89,7 +91,9 @@ print.typeList <- function(x) {
 ## so that we can eventually use it to hold graphic information about the
 ## connection.
 connectionElement <- function(sink) {
-    return(structure(list(sink=sink), class="connectionElement"));
+    connection.id.counter <<- connection.id.counter + 1;
+    return(structure(list(sink=sink,id=connection.id.counter),
+                     class="connectionElement"));
 }
 
 format.connectionElement <- function(clist) {
@@ -283,6 +287,8 @@ gate <- function(inputTypes,
                  shape=1,
                  typeCatalog=gate.default.typeCatalog) {
     out <- list();
+    gate.id.counter <<- gate.id.counter + 1; ## global
+    out[["id"]] <- gate.id.counter;
 
     ## The input list should be a bunch of names and a valid name from the
     ## type list for each one.
@@ -320,13 +326,15 @@ gate <- function(inputTypes,
         out[["type"]] <- "composite";
         ## The transform is a list of other gates, hopefully accompanied by
         ## a connection list.
+        out[["gateList"]] <- transform;
+        out[["connectionList"]] <- connectionList;
         out[["transform"]] <-
             function(argList) {
                 if (!gate.checkTypes(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes)) stop();
                 return(gate.execute(inputList=argList,
-                                    gateList=transform,
+                                    gateList=out[["gateList"]],
                                     connectionList=connectionList,
                                     outList=outList));
             };
@@ -343,15 +351,75 @@ gate <- function(inputTypes,
 
 print.gate <- function(g) {
 
-    cat("type: ", g$type, "\n");
+    cat("type:", g$type, "\n");
+    cat("node ID:", g$id, "\n");
     cat("inputTypes:", format.typeList(g$inputTypes), "\n");
     cat("expected outputs: ");
     for (oname in names(g$outList)) cat(oname, " ");
     cat("\n");
 
+    if (g$type == "composite") {
+        cat("nodes: ");
+        for (name in names(g$gateList)) cat(name, " ");
+        cat("\n");
+
+        cat("connections:\n");
+        for (name in names(g$connectionList))
+            cat("  ", name, "-->",
+                format.connectionElement(g$connectionList[[name]]), "\n");
+        cat("\n");
+    }
+
     cat("color:", g$color, "\n");
     cat("shape:", g$shape, "\n");
 }
+
+
+## compiles a table of nodes for a gate.  If the node is atomic, this is
+## pretty simple.  If it is composite, the function is called recursively
+## to work out the whole structure.
+make.gate.nodeList <- function(g) {
+
+    ## Check gate type
+    if (g$type == "atomic") {
+        return(data.frame(id=c(g$id), label=c(" "), stringsAsFactors=FALSE));
+    } else {
+        ## This is a composite gate, and g$gateList is a list of other gates.
+        out.nodelist <- data.frame();
+
+        for (name in names(g$gateList)) {
+            cat("processing: ", name, "\n");
+            d <- make.gate.nodelist(g$gateList[[name]]);
+            d$label[1] <- name;
+            out.nodelist <- rbind(out.nodelist, d);
+        }
+        return(out.nodelist);
+    }
+}
+
+## Compile a table of edges for a gate, with 'from' and 'to' columns.  If
+## the node is atomic, there aren't any edges, so we return an empty data
+## frame to rbind to the earlier work.
+make.gate.edgeList <- function(g) {
+
+    if (g$type == "atomic") return(data.frame());
+
+    out.edgelist <- data.frame();
+    for (connectName in names(g$connectionList)) {
+        d <- data.frame(id=c(g$connectionList[[connectName]]$id),
+                        from=c(connectName),
+                        to=c(g$connectionList[[connectName]]$sink));
+
+        out.edgelist <- rbind(out.edgelist, d);
+    }
+    return(out.edgelist);
+}
+
+## TBD:
+## Need treatment of final inputs and outputs
+## Need treatment of multiple sinks.
+## Node ids are not unique like labels. Maybe just generate on fly?
+
 
 
 test.inlist <- list(in1="0",in2="1", in3="1");
