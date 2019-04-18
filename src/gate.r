@@ -428,18 +428,35 @@ print.gate <- function(g) {
 }
 
 
-## compiles a table of nodes for a gate.  If the node is atomic, this is
-## pretty simple.  If it is composite, the function is called recursively
-## to work out the whole structure.
-gate.nodeList <- function(g, prefix="", uid=1) {
+## compiles a table of nodes for a gate for drawing them.  If the node is
+## atomic, this is pretty simple.  If it is composite, the function is
+## called recursively to work out the whole structure.  If inout is TRUE,
+## we include nodes for the various inputs and outputs of the given gate.
+gate.nodeList <- function(g, prefix="", uid=1, inout=TRUE) {
+
+    ## Start with an empty node list.
+    out.nodeList <- data.frame(stringsAsFactors=FALSE);
+
+    ## If we're at the top level, include the inputs as nodes, because
+    ## we'll probably want to draw them, too.
+    if (prefix == "") {
+        for (iname in names(g$inputTypes)) {
+            out.nodeList <- rbind(out.nodeList,
+                                  data.frame(label=iname,id=uid,
+                                             gid=g$id, type="IO",
+                                             stringsAsFactors=FALSE));
+            uid <- uid + 1;
+        }
+    }
 
     ## Check gate type
     if (g$type == "atomic") {
-        return(data.frame(gid=g$id, id=uid, label=prefix,
-                          stringsAsFactors=FALSE));
+        out.nodeList <- rbind(out.nodeList,
+                              data.frame(label=prefix, id=uid, gid=g$id, type="G",
+                                         stringsAsFactors=FALSE));
+        uid <- uid + 1;
     } else {
         ## This is a composite gate, and g$gateList is a list of other gates.
-        out.nodeList <- data.frame();
 
         ## Sort through the subsidiary gates...
         for (name in names(g$gateList)) {
@@ -457,12 +474,28 @@ gate.nodeList <- function(g, prefix="", uid=1) {
             }
             out.nodeList <- rbind(out.nodeList, d);
         }
-        return(out.nodeList);
     }
+
+    ## If we're at the top level, include the outputs as nodes, because
+    ## we'll probably want to draw them, too.
+    if (prefix == "") {
+
+        for (oname in names(g$outList)) {
+            out.nodeList <- rbind(out.nodeList,
+                                  data.frame(label=oname, id=uid,
+                                             gid=g$id, type="IO",
+                                         stringsAsFactors=FALSE));
+            uid <- uid + 1;
+        }
+    }
+
+    return(out.nodeList);
 }
 
-## Compile a table of edges for a gate, with 'from' and 'to' columns.
-gate.edgeList <- function(g, prefix="", inspect=FALSE) {
+## Compile a table of edges for a gate, with 'from' and 'to' columns.  If a
+## nodeList is included as an arg, use its 'id' column to reference the
+## 'to' and 'from' columns created here.
+gate.edgeList <- function(g, nodeList=0, prefix="", inspect=FALSE) {
 
     ##  If the node is atomic, there aren't any edges, so we return an
     ## empty data frame to rbind to the earlier work.
@@ -494,12 +527,12 @@ gate.edgeList <- function(g, prefix="", inspect=FALSE) {
 
         if (prefix == "") {
             d <- data.frame(id=as.numeric(sinkIds),
-                            from=connectName,
-                            to=sinkNames);
+                            fromLabel=connectName,
+                            toLabel=sinkNames);
         } else {
             d <- data.frame(id=as.numeric(sinkIds),
-                            from=paste(prefix, connectName, sep="."),
-                            to=paste(prefix, sinkNames, sep="."));
+                            fromLabel=paste(prefix, connectName, sep="."),
+                            toLabel=paste(prefix, sinkNames, sep="."));
         }
 
         out.edgeList <- rbind(out.edgeList, d);
