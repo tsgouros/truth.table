@@ -1,4 +1,54 @@
 
+
+## Need to expand the truth table class so that it can also be a
+## container, holding a collection of other truth tables.
+
+## Also need to rejigger the truth table class so the inputs can be
+## heterogeneous.  Maybe a list of input symbol alphabets, and a list of
+## outcomes indexed by combinations of the input symbols.
+
+## Then we also need a gate function to accept a truth table and some
+## arguments matching the input channels, and gives an output symbol.  A
+## gate could also be defined with a function.  We need a formalism for
+## hooking them up.  And a truth table could be defined with a gate.  Or a
+## collection of gates.
+
+## And then a way to hook them up.
+
+## Also, the truth tables need a graphical symbol attached to each.  Or is
+## it the gates that have a symbol?
+
+
+## inputs
+## [[in1]]
+## "0", "1", "2"
+## [[in2]]
+## "0", "1"
+## [[in3]]
+## "a", "b"
+
+## outalphabet
+## "A","B","C","D"
+
+## out
+## [[00a]]
+## outcome("A" (.2), "B" (0.8))
+
+## [[01a]]
+## outcome("B" (1.0))
+
+## truth.table inputs:
+
+##     outList <- list(
+
+
+
+
+
+
+
+
+
 ## Imagine an input truth table for an operation on discrete symbols:
 ##
 ## in1  in2  in3  out  prb
@@ -467,9 +517,9 @@ mutual.total <- function(tt, input.probs, inspect=F) {
                 if (inspect) cat(" ", char, " (", input.probs[[col]][[char]], ") ",
                                  sep="");
             } else {
-                prod.prob <- prod.prob * output.probs[[char]];
-                if (inspect) cat(" ", char, " (", output.probs[[char]], ") ",
-                                 sep="");
+#                prod.prob <- prod.prob * output.probs[[char]];
+#                if (inspect) cat(" ", char, " (", output.probs[[char]], ") ",
+#                                 sep="");
             }
         }
         if (inspect) cat(" >> ",joint.probs[[i]]," ,",  prod.prob,"\n", sep="");
@@ -502,16 +552,16 @@ try <- function(tt, input.probs) {
         ExH(input.probs[[1]], input.probs[[2]]), "\n");
     cat(" E(H(X2))                   ",
         ExH(input.probs[[2]], input.probs[[1]]), "\n");
-    cat(" E(mutual X1;Y)             ",
-        ExH(calc.output.probs(tt, input.probs), input.probs[[1]]), "\n");
-    cat(" E(mutual X2;Y)             ",
-        ExH(calc.output.probs(tt, input.probs), input.probs[[2]]), "\n");
-    cat(" Sum H(X1) + I(X2;Y):        ",  HX1 + mutual(tt, input.probs, 1), "\n");
-    cat(" Sum H(X2) + I(X1;Y):        ",  HX2 + mutual(tt, input.probs, 2), "\n");
-    ## cat(" H(Y)-E(H(X1)):             ",
-    ##     HY - ExH(input.probs[[1]],input.probs[[2]]), "\n");
-    ## cat(" H(Y)-E(H(X2)):             ",
-    ##     HY - ExH(input.probs[[2]],input.probs[[1]]), "\n");
+    ## cat(" E(mutual X1;Y)             ",
+    ##     ExH(calc.output.probs(tt, input.probs), input.probs[[1]]), "\n");
+    ## cat(" E(mutual X2;Y)             ",
+    ##     ExH(calc.output.probs(tt, input.probs), input.probs[[2]]), "\n");
+    ## cat(" Sum H(X1) + I(X2;Y):        ",  HX1 + mutual(tt, input.probs, 1), "\n");
+    ## cat(" Sum H(X2) + I(X1;Y):        ",  HX2 + mutual(tt, input.probs, 2), "\n");
+    cat(" E(H(X1)) - I(X2;Y):        ",
+        ExH(input.probs[[1]],input.probs[[2]]) - mutual(tt, input.probs, 2), "\n");
+    cat(" E(H(X2)) - I(X1;Y):        ",
+        ExH(input.probs[[2]],input.probs[[1]]) - mutual(tt, input.probs, 1), "\n");
     ## cat(" H(Y)-E(H(X1)) - I(X2;Y):   ",
     ##     HY - HX1 - mutual(tt, input.probs, 2), "\n");
     ## cat(" H(Y)-E(H(X2)) - I(X1;Y):   ",
