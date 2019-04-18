@@ -279,7 +279,6 @@ gate <- function(inputTypes,
                  transform,
                  connectionList=list(),
                  outList=list(out=""),
-                 name="gate",
                  color=1,
                  shape=1,
                  typeCatalog=gate.default.typeCatalog) {
@@ -305,6 +304,7 @@ gate <- function(inputTypes,
     ## name,value pairs and outputs a similar list at the other end, or it
     ## is an assembly of other gate objects (class='list').
     if (class(transform) == "function") {
+        out[["type"]] <- "atomic";
         ## We want to create the function with an arglist specified by
         ## inputTypes and do a certain amount of type checking before
         ## passing it to the input transformation.  The output value of a
@@ -317,6 +317,7 @@ gate <- function(inputTypes,
                 return(transform(argList));
             };
     } else if (class(transform) == "list") {
+        out[["type"]] <- "composite";
         ## The transform is a list of other gates, hopefully accompanied by
         ## a connection list.
         out[["transform"]] <-
@@ -342,12 +343,7 @@ gate <- function(inputTypes,
 
 print.gate <- function(g) {
 
-    if (class(g$transform) == "function") {
-        cat("type: atomic\n");
-    } else {
-        cat("type: composite\n");
-    }
-
+    cat("type: ", g$type, "\n");
     cat("inputTypes:", format.typeList(g$inputTypes), "\n");
     cat("expected outputs: ");
     for (oname in names(g$outList)) cat(oname, " ");
