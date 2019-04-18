@@ -430,9 +430,8 @@ print.gate <- function(g) {
 
 ## compiles a table of nodes for a gate for drawing them.  If the node is
 ## atomic, this is pretty simple.  If it is composite, the function is
-## called recursively to work out the whole structure.  If inout is TRUE,
-## we include nodes for the various inputs and outputs of the given gate.
-gate.nodeList <- function(g, prefix="", uid=1, inout=TRUE) {
+## called recursively to work out the whole structure.
+gate.nodeList <- function(g, prefix="", uid=1) {
 
     ## Start with an empty node list.
     out.nodeList <- data.frame(stringsAsFactors=FALSE);
@@ -451,6 +450,7 @@ gate.nodeList <- function(g, prefix="", uid=1, inout=TRUE) {
 
     ## Check gate type
     if (g$type == "atomic") {
+        ## This is an atomic gate, just return a single line with its data.
         out.nodeList <- rbind(out.nodeList,
                               data.frame(label=prefix, id=uid, gid=g$id, type="G",
                                          stringsAsFactors=FALSE));
@@ -495,22 +495,33 @@ gate.nodeList <- function(g, prefix="", uid=1, inout=TRUE) {
 ## Compile a table of edges for a gate, with 'from' and 'to' columns.  If a
 ## nodeList is included as an arg, use its 'id' column to reference the
 ## 'to' and 'from' columns created here.
-gate.edgeList <- function(g, nodeList=0, prefix="", inspect=FALSE) {
-
-    ##  If the node is atomic, there aren't any edges, so we return an
-    ## empty data frame to rbind to the earlier work.
-    if (g$type == "atomic") return(data.frame());
+gate.edgeList <- function(g, prefix="", inspect=FALSE) {
 
     ## Prepare an empty data frame to accumulate the connections.
-    out.edgeList <- data.frame();
+    out.edgeList <- data.frame(stringsAsFactors=FALSE);
+
+    showList <- function(l) {
+        for (i in 1:dim(l)[1])
+            cat(">>", i, l[i,"id"], l[i,"fromLabel"], l[i,"toLabel"], "\n");
+    }
 
     ## Get the connections for any child nodes.
     for (gateName in names(g$gateList)) {
         if (inspect) cat("processing:", gateName, "\n");
-        out.edgeList <- rbind(out.edgeList,
-                              gate.edgeList(g$gateList[[gateName]],
-                                            prefix=gateName));
+
+        if (prefix == "") {
+            out.edgeList <- rbind(out.edgeList,
+                                  gate.edgeList(g$gateList[[gateName]],
+                                                prefix=gateName));
+        } else {
+            out.edgeList <- rbind(out.edgeList,
+                                  gate.edgeList(g$gateList[[gateName]],
+                                                prefix=paste(prefix, gateName, sep=".")));
+        }
+
     }
+
+    if (inspect) showList(out.edgeList);
 
     for (connectName in names(g$connectionList)) {
 
@@ -528,22 +539,23 @@ gate.edgeList <- function(g, nodeList=0, prefix="", inspect=FALSE) {
         if (prefix == "") {
             d <- data.frame(id=as.numeric(sinkIds),
                             fromLabel=connectName,
-                            toLabel=sinkNames);
+                            toLabel=sinkNames,
+                            stringsAsFactors=FALSE);
         } else {
             d <- data.frame(id=as.numeric(sinkIds),
                             fromLabel=paste(prefix, connectName, sep="."),
-                            toLabel=paste(prefix, sinkNames, sep="."));
+                            toLabel=paste(prefix, sinkNames, sep="."),
+                            stringsAsFactors=FALSE);
         }
 
         out.edgeList <- rbind(out.edgeList, d);
+        if (inspect) showList(out.edgeList);
+
     }
     return(out.edgeList);
 }
 
 ## TBD:
-## Need treatment of final inputs and outputs
-## Need treatment of multiple sinks.
-## Node ids are not unique like labels. Maybe just generate on fly?
 ## Should add color and shape info to node and edge lists.
 ## (Also add color to edge defs.)
 
