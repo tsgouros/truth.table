@@ -91,17 +91,25 @@ print.typeList <- function(x) {
 ## so that we can eventually use it to hold graphic information about the
 ## connection.
 connectionElement <- function(sink) {
-    connection.id.counter <<- connection.id.counter + 1;
-    return(structure(list(sink=sink,id=connection.id.counter),
+    ## How many entries are in sink? (gregexpr has complicated output)
+    numEntries <- sum(gregexpr(",", sink)[[1]] > 0);
+
+    ## If there are multiple entries in sink, we need an id for each one.
+    idString <- paste(connection.id.counter:(connection.id.counter+numEntries),
+                      collapse=",");
+
+    ## Update the counter for all the ids we've just used.
+    connection.id.counter <<- connection.id.counter + numEntries + 1;
+    return(structure(list(sink=sink,id=idString),
                      class="connectionElement"));
 }
 
-format.connectionElement <- function(clist) {
-    return(clist$sink);
+format.connectionElement <- function(cel) {
+    return(paste(cel$sink, " (", cel$id, ")", sep=""));
 }
 
-print.connectionElement <- function(clist) {
-    cat(format.connectionElement(clist), "\n");
+print.connectionElement <- function(cel) {
+    cat(format.connectionElement(cel), "\n");
 }
 
 ## A connectionList is a list of connections between outputs and inputs.
@@ -423,11 +431,11 @@ print.gate <- function(g) {
 ## compiles a table of nodes for a gate.  If the node is atomic, this is
 ## pretty simple.  If it is composite, the function is called recursively
 ## to work out the whole structure.
-gate.nodeList <- function(g, prefix="", gid=1) {
+gate.nodeList <- function(g, prefix="", uid=1) {
 
     ## Check gate type
     if (g$type == "atomic") {
-        return(data.frame(id=g$id, gid=gid, label=prefix,
+        return(data.frame(gid=g$id, id=uid, label=prefix,
                           stringsAsFactors=FALSE));
     } else {
         ## This is a composite gate, and g$gateList is a list of other gates.
@@ -437,10 +445,10 @@ gate.nodeList <- function(g, prefix="", gid=1) {
         for (name in names(g$gateList)) {
 
             ## ... making a nodeList for each of them
-            d <- gate.nodeList(g$gateList[[name]], prefix=name, gid=gid);
+            d <- gate.nodeList(g$gateList[[name]], prefix=name, uid=uid);
 
             ## The gate ID is arbitrary, just needs to be unique in this table.
-            gid <- gid + dim(d)[1];
+            uid <- uid + dim(d)[1];
 
             if (prefix != "") {
                 for (i in 1:length(d$label)) {
@@ -454,7 +462,7 @@ gate.nodeList <- function(g, prefix="", gid=1) {
 }
 
 ## Compile a table of edges for a gate, with 'from' and 'to' columns.
-gate.edgeList <- function(g, prefix="") {
+gate.edgeList <- function(g, prefix="", inspect=FALSE) {
 
     ##  If the node is atomic, there aren't any edges, so we return an
     ## empty data frame to rbind to the earlier work.
@@ -465,7 +473,7 @@ gate.edgeList <- function(g, prefix="") {
 
     ## Get the connections for any child nodes.
     for (gateName in names(g$gateList)) {
-        cat("processing:", gateName, "\n");
+        if (inspect) cat("processing:", gateName, "\n");
         out.edgeList <- rbind(out.edgeList,
                               gate.edgeList(g$gateList[[gateName]],
                                             prefix=gateName));
@@ -473,19 +481,25 @@ gate.edgeList <- function(g, prefix="") {
 
     for (connectName in names(g$connectionList)) {
 
-        ## There might be multiple sinks for any connection.
-        sinkNames <- strsplit(g$connectionList[[connectName]]$sink, ",");
+        ## There might be multiple sinks for any connection.  We trust that
+        ## the ids were generated correctly so there is an id number for
+        ## each connection sink.
+        sinkNames <- strsplit(g$connectionList[[connectName]]$sink, ",")[[1]];
+        sinkIds <- strsplit(g$connectionList[[connectName]]$id, ",")[[1]];
 
-        for (sinkName in sinkNames) {
-            if (prefix == "") {
-                d <- data.frame(id=g$connectionList[[connectName]]$id,
-                                from=connectName,
-                                to=sinkName);
-            } else {
-                d <- data.frame(id=g$connectionList[[connectName]]$id,
-                                from=paste(prefix, connectName, sep="."),
-                                to=paste(prefix, sinkName, sep="."));
-            }
+        if (length(sinkNames) != length(sinkIds)) {
+            cat("The connectionList has inconsistent connection IDs\n");
+            stop();
+        }
+
+        if (prefix == "") {
+            d <- data.frame(id=as.numeric(sinkIds),
+                            from=connectName,
+                            to=sinkNames);
+        } else {
+            d <- data.frame(id=as.numeric(sinkIds),
+                            from=paste(prefix, connectName, sep="."),
+                            to=paste(prefix, sinkNames, sep="."));
         }
 
         out.edgeList <- rbind(out.edgeList, d);
