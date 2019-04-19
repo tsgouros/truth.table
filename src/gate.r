@@ -1,13 +1,39 @@
-### What we need is an outcome object, to contain symbols and
-### associated probabilities, and a gate object, to contain a list of
-### alphabets, and a function to transform inputs to an output.
+## TO DO list
+##
+##  - A function to abstract a truth table from an arbitrary gate object.
+##    This would require going through all the possible input combinations
+##    some set number of times to estimate the probabilities of the
+##    different outputs.
+##
+##  - Better control of the graphics? Don't really understand how they work
+##    at this point.
+##
+##  - Some more testing of different gate geometries.  I think the export
+##    works and gets all the connections right, but do I really know?  Not
+##    so much.
+##
+##  This is all in service of experimenting with geometries that might
+##  require more or less error correction.  The point of doing this with a
+##  graph-theoretic analysis thingy is that there might be some kind of
+##  graph-theoretic approach to the problem of determining when a transform
+##  or an input is unimportant enough not to require much in the way of
+##  error checking.
+##
+##  4/18/19 ts
 
 library(plyr)
+library(DiagrammeR)
 
+## A couple of global variables for generating unique IDs for nodes and
+## edges.  Only really used on export.  See the gate.nodeList() function,
+## for example.
 gate.id.counter <- 0;
 connection.id.counter <- 0;
 
-## A class to hold a type and range for some gate input.
+## A class to hold a type and range for some gate input.  We have a type
+## system, where you can establish a data type and range of acceptable
+## values for some gate input.  The available types are built on top of
+## 'symbol' (character string), integer, and floats.
 inputType <- function(baseType="symbol", range=c("0","1")) {
     out <- list();
 
@@ -71,6 +97,7 @@ print.inputType <- function(x) {
     }
 }
 
+## A handful of default types to use.
 gate.default.typeCatalog <- list(
     binary=inputType("symbol", c("0","1")),
     integer=inputType("integer", c(0,100)),
@@ -738,9 +765,3 @@ test.COMP3gate <- gate(input=test.intlist[1:2],
                        transform=test.glist3,
                        out=list("out1"="","out2"=""))
 
-#print.gate
-
-#plot.gate
-
-## Creates a virtual function from an assemblage of gate objects.
-##gateFromGates <- function(gateList, connectionTable
