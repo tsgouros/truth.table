@@ -430,6 +430,19 @@ print.gate <- function(g) {
 }
 
 
+## The next few functions are meant for exporting the graph nature of the
+## connection to a graph display and analysis package in R.  Using the
+## "DiagrammeR" package, tre these:
+##
+## > igr <- create_graph()
+## > nl <- gate.nodeList(test.COMP2gate)
+## > el <- gate.edgeList(test.COMP2gate)
+## > tl <- gate.simplify.edgeList(el, nl)
+## > igr <- create_graph()
+## > igr2 <- igr %>% add_nodes_from_table(table=nl, label_col=label)
+## > igr3 <- igr2 %>% add_edges_from_table(table=tl, from_col=from, to_col=to, from_to_map=id_external)
+## > render_graph(igr3, layout="tree")
+##
 ## compiles a table of nodes for a gate for drawing them.  If the node is
 ## atomic, this is pretty simple.  If it is composite, the function is
 ## called recursively to work out the whole structure.
@@ -561,46 +574,81 @@ gate.edgeList <- function(g, prefix="", inspect=FALSE) {
 ## id field of the node list.
 gate.simplify.edgeList <- function(edges, nodes) {
 
-    ## Get the easy matches out of the way with mdply.
-    findId <- function(id, toLabel, fromLabel) {
+    ## A little function to get rid of the suffix, if this is a compound
+    ## string, like 'a.b.c'.  Strings without a '.' are untouched.
+    dropLast <- function(label) {
+        tmpArray <- strsplit(label, "\\.")[[1]];
+        if (length(tmpArray) > 1) {
+            return(paste(tmpArray[1:(length(tmpArray) - 1)], collapse="."));
+        } else {
+            return(label);
+        }
+    }
 
-        fromId <- fromLabel;
-        toId <- toLabel;
+    ## Create a couple of columns with the suffix removed from the labels.
+    toShort <- edges$toLabel;
+    fromShort <- edges$fromLabel;
+
+    for (i in 1:length(edges$fromLabel)) {
+        fromShort[i] <- dropLast(edges$fromLabel[i]);
+        toShort[i] <- dropLast(edges$toLabel[i]);
+
+    }
+    edges <- cbind(edges, fromShort, toShort);
+
+
+
+    ## Get the easy matches out of the way with mdply.
+    findId <- function(id, fromLabel, toLabel, fromShort, toShort) {
+
+        fromId <- 0;
+        toId <- 0;
 
         for (i in 1:length(nodes$label)) {
-            if (grepl(paste("^", nodes$label[i], "$", sep=""), fromLabel)) {
+            if (grepl(paste("^", nodes$label[i], "$", sep=""), fromShort)) {
                 fromId <- nodes$id[i];
             }
 
-            if (grepl(paste("^", nodes$label[i], "$", sep=""), toLabel)) {
+            if (grepl(paste("^", nodes$label[i], "$", sep=""), toShort)) {
                 toId <- nodes$id[i];
             }
         }
         return(data.frame(from=fromId, to=toId));
     }
 
-    out.edgeList <- mdply(edges, findId);
+    edges <- mdply(edges, findId);
 
-    if(TRUE) return(out.edgeList);
 
+    ## By this point, we've got most of them, and the ones we don't have
+    ## are marked with a zero.
+
+    ## A little recursive function to follow the 'from' nodes backwards.
+    ## We go backwards because there's no forking in that direction.  Once
+    ## these are found, I believe the forwards links left over are
+    ## redundant.
     findOriginId <- function(fromString, edgeList, nodeList) {
 
         if (length(fromString) == 0) return(0);
 
-        cat(">>>fromString:", fromString, "\n");
         ## grepl returns an array of T/F. "sum" makes an ok "or".
-        if (sum(grepl(paste("^", fromString, sep=""), nodeList$label))) {
+        if (sum(grepl(paste("^", fromString, "$", sep=""), nodeList$label))) {
 
             ## If we're here, we've found the string in the node list...
             fromLoc <- grep(paste("^", fromString, sep=""), nodeList$label);
 
             ## So return the corresponding index.
             return(nodeList$id[fromLoc]);
+
+            ## If we haven't found it, try looking without the suffix.
+        } else if (sum(grepl(paste("^", dropLast(fromString), "$", sep=""),
+                             nodeList$label))) {
+
+            fromLoc <- grep(paste("^", dropLast(fromString), sep=""),
+                            nodeList$label);
+            return(nodeList$id[fromLoc]);
         } else {
             ## We didn't find it in the nodelist, so grab the corresponding
             ## "to" and try again, recursively.
-
-            ## First, try it 'as is.'
             toLoc <- grep(paste("^", fromString, sep=""), edgeList$toLabel);
 
             if (length(toLoc) > 0) {
@@ -608,31 +656,23 @@ gate.simplify.edgeList <- function(edges, nodes) {
                 return(findOriginId(edgeList$fromLabel[toLoc],
                                     edgeList, nodeList));
 
-            } else {
-
-                ## Try removing the last piece of the label.
-                fLab <- strsplit(fromString, "\\.")[[1]];
-                fstring <- paste(fLab[1:(length(fLab)-1)], collapse=".");
-                return(findOriginId(fstring, edgeList, nodeList));
-
             }
         }
     }
 
     ## We have all the matches, except that lots of the "from" indications
     ## have to be traced back to their origin.
-    for (i in 1:length(out.edgeList$from)) {
+    for (i in 1:length(edges$from)) {
         ## If it's a plain number, no need.
-        if (!grepl("^[0-9]+$", out.edgeList$from[i])) {
+        if (edges$from[i] == 0) {
 
             ## Find this in the to list and fix the from.
-            out.edgeList$from[i] <-
-                findOriginId(out.edgeList$from[i], edges, nodes);
+            edges$from[i] <- findOriginId(edges$fromLabel[i], edges, nodes);
 
         }
     }
 
-    return(out.edgeList);
+    return(edges[(edges$to!=0),c("id","from","to")]);
 }
 
 
