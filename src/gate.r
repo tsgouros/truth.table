@@ -228,8 +228,8 @@ gate.checkTypes <- function(argList, typeCatalog, inputTypes) {
 ## inputs, and keeps going until there is an output value for each slot in
 ## the output list.  On input, the output list is a list of names and empty
 ## values.
-gate.execute <- function(inputList, connectionList, gateList, outList,
-                         inspect=FALSE, itermax=100) {
+gate.execute <- function(inputList, connectionList, gateList, outList, thisGate,
+                         inspect=FALSE, tickMax=100) {
 
     ## Create an empty list of values and populate it with values from the
     ## inputList, according to the connections in the connectionList.  The
@@ -243,7 +243,7 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
                 valueList[[entry]] <- inputList[[inputName]];
             }
         } else {
-            cat("Missing value in connectionList:", inputName, "\n");
+            cat(thisGate, ": Missing value in connectionList:", inputName, "\n");
             cat("connectionList names: ");
             for (name in names(connectionList)) cat(name, " ");
             cat ("\n");
@@ -269,9 +269,9 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
     }
 
     if (inspect) {
-        cat("input list:\n");
-        showValueList(inputList, prefix="  ");
-        cat("connections:\n");
+        cat(thisGate, "input list:\n");
+        showValueList(inputList, prefix=paste(" ", thisGate, ":", sep=""));
+        cat(thisGate, "connections:\n");
         for (name in names(connectionList))
             cat(" ", name, "-->",
                 format.connectionElement(connectionList[[name]]), "\n");
@@ -286,7 +286,7 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
     repeat {
 
         if (inspect) {
-            cat("value list (iteration ", watchCount, "):\n", sep="");
+            cat(thisGate, ": value list (iteration ", watchCount, "):\n", sep="");
             showValueList(valueList, prefix="  ");
             cat("-------------------------\n");
         }
@@ -303,16 +303,17 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
 
             ## If we have all the inputs the gate needs, execute its transform.
             if (length(gateInputs) == length(gateList[[gateName]]$inputTypes)) {
-                if (inspect) cat("processing:", gateName, "\n");
+                if (inspect) cat(thisGate, "processing:", gateName, "\n");
                 masterOutput[[gateName]] <-
-                    gateList[[gateName]]$transform(gateInputs);
+                    gateList[[gateName]]$transform(gateInputs, inspect=inspect,
+                                                   tickMax=tickMax);
             } else {
-                if (inspect) cat("skipping:", gateName, "\n");
+                if (inspect) cat(thisGate, "skipping:", gateName, "\n");
             }
         }
 
         if (inspect) {
-            cat("master output:\n");
+            cat(thisGate, "master output:\n");
             showMasterOutput(masterOutput, prefix="  ");
             cat("------------------------\n");
         }
@@ -322,12 +323,16 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
         ## to copy the outputs into the valueList, so they can be inputs to the
         ## next round.
         for (gateName in names(masterOutput)) {
+            cat(thisGate, "copying gateName", gateName, "to: ");
             for (outputName in names(masterOutput[[gateName]])) {
                 outputQualifiedName <- paste(gateName, outputName, sep=".");
+                cat("(", outputQualifiedName, ") ");
                 valueList[[connectionList[[outputQualifiedName]]$sink]] <-
                     masterOutput[[gateName]][[outputName]];
             }
+            cat("\n");
         }
+        cat(thisGate, "NEXT\n");
 
         ## Check to see if all the values anticipated in the outList exist
         ## in the valueList.  If they do, copy them to the outList, which
@@ -338,15 +343,16 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
                 outList[[outputName]] <- valueList[[outputName]];
             } else {
                 ## We're missing some values, so repeat.
+                cat(thisGate, "can't find", outputName,"\n");
                 missing <- TRUE;
             }
         }
         ## Note the watchdog counter, just in case.
         watchCount <- watchCount + 1;
-        if ((!missing) || (watchCount > itermax)) break;
+        if ((!missing) || (watchCount > tickMax)) break;
     }
 
-    if (missing && (watchCount > itermax))
+    if (missing && (watchCount > tickMax))
         cat("The gate did not produce all the necessary outputs.\n");
     return(outList);
 }
@@ -360,7 +366,8 @@ gate.execute <- function(inputList, connectionList, gateList, outList,
 ##
 ## A gate object also has a graphical representation, either as a single
 ## node with edges in and out, or a collection of nodes and edges.
-gate <- function(inputTypes,
+gate <- function(gateName,
+                 inputTypes,
                  transform,
                  connectionList=list(),
                  outList=list(out=""),
@@ -369,6 +376,7 @@ gate <- function(inputTypes,
                  typeCatalog=gate.default.typeCatalog) {
     out <- list();
     gate.id.counter <<- gate.id.counter + 1; ## global
+    out[["thisGate"]] <- gateName;
     out[["id"]] <- gate.id.counter;
 
     ## The input list should be a bunch of names and a valid name from the
@@ -397,7 +405,7 @@ gate <- function(inputTypes,
         ## passing it to the input transformation.  The output value of a
         ## transform is a list of one or more labeled values.
         out[["transform"]] <-
-            function(argList, inspect=FALSE) {
+            function(argList, inspect=FALSE, tickMax=100) {
                 if (!gate.checkTypes(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes)) stop();
@@ -410,7 +418,7 @@ gate <- function(inputTypes,
         out[["gateList"]] <- transform;
         out[["connectionList"]] <- connectionList;
         out[["transform"]] <-
-            function(argList, inspect=FALSE, itermax=100) {
+            function(argList, inspect=FALSE, tickMax=100) {
                 if (!gate.checkTypes(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes)) stop();
@@ -418,7 +426,8 @@ gate <- function(inputTypes,
                                     gateList=out[["gateList"]],
                                     connectionList=connectionList,
                                     outList=outList,
-                                    inspect, itermax));
+                                    thisGate=gateName,
+                                    inspect, tickMax));
             };
     } else {
         cat("transform must be a function or a list.\n");
@@ -678,11 +687,16 @@ gate.simplify.edgeList <- function(edges, nodes) {
             ## "to" and try again, recursively.
             toLoc <- grep(paste("^", fromString, sep=""), edgeList$toLabel);
 
-            if (length(toLoc) > 0) {
+            if (length(toLoc) == 1) {
 
                 return(findOriginId(edgeList$fromLabel[toLoc],
                                     edgeList, nodeList));
 
+            } else if (length(toLoc > 1)) {
+                cat("Your edge list is pathological.  An output can connect to\n",
+                    "multiple inputs, but an input cannot connect to multiple\n",
+                    "outputs.\n");
+                stop();
             }
         }
     }
@@ -711,7 +725,8 @@ gate.simplify.edgeList <- function(edges, nodes) {
 
 
 test.inlist <- list(in1="0",in2="1", in3="1");
-test.intlist <- list(in1="binary", in2="binary", in3="binary");
+test.intlist <- list(in1="binary", in2="binary", in3="binary",
+                     in4="binary", in5="binary", in6="binary");
 
 test.clist <- connectionList("in1","AND.in1");
 test.clist <- append.connectionList(test.clist, "in1", "AND1.in1");
@@ -731,12 +746,12 @@ test.ORfun <- function(inlist) {
     for (l in inlist) out <- out || (l == "1");
     return(list(out=(if (out) "1" else "0")));
 }
-test.ORgate <- gate(list(in1="binary",in2="binary"), test.ORfun);
-test.ANDgate <- gate(list(in1="binary",in2="binary"), test.ANDfun);
+test.ORgate <- gate("OR", list(in1="binary",in2="binary"), test.ORfun);
+test.ANDgate <- gate("AND", list(in1="binary",in2="binary"), test.ANDfun);
 test.glist <- list(AND1=test.ANDgate, AND2=test.ANDgate, OR3=test.ORgate)
 test.olist <- list(out="")
 
-test.COMPgate <- gate(input=test.intlist,
+test.COMPgate <- gate("C1", input=test.intlist[1:3],
                       conn=test.clist,
                       transform=test.glist,
                       out=test.olist)
@@ -749,19 +764,29 @@ test.clist2 <- append.connectionList(test.clist2, "C1.out","OR1.in1");
 test.clist2 <- append.connectionList(test.clist2, "AND1.out","OR1.in2");
 test.clist2 <- append.connectionList(test.clist2, "OR1.out","out");
 
-test.COMP2gate <- gate(input=test.intlist,
+test.COMP2gate <- gate("C2", input=test.intlist[1:3],
                        conn=test.clist2,
                        transform=test.glist2,
                        out=test.olist)
 
-test.glist3 <- list(AND1=test.ANDgate, C2=test.COMP2gate);
+test.glist3 <- list(AND1=test.ANDgate, OR4=test.ORgate, OR5=test.ORgate, C2=test.COMP2gate, C1=test.COMPgate, AND2=test.ANDgate, AND3=test.ANDgate);
 test.clist3 <- connectionList("in1", "AND1.in1,C2.in1");
-test.clist3 <- append.connectionList(test.clist3, "in2", "AND1.in2,C2.in2,C2.in3")
-test.clist3 <- append.connectionList(test.clist3, "C2.out", "out1")
-test.clist3 <- append.connectionList(test.clist3, "AND1.out", "out2")
+test.clist3 <- append.connectionList(test.clist3, "in2", "AND1.in2,C2.in2")
+test.clist3 <- append.connectionList(test.clist3, "in3", "OR4.in1,C2.in3")
+test.clist3 <- append.connectionList(test.clist3, "in4", "OR4.in2")
+test.clist3 <- append.connectionList(test.clist3, "OR4.out", "OR5.in1")
+test.clist3 <- append.connectionList(test.clist3, "AND1.out", "AND2.in1,OR5.in2,C1.in1")
+test.clist3 <- append.connectionList(test.clist3, "in5", "C1.in2")
+test.clist3 <- append.connectionList(test.clist3, "C2.out", "C1.in3")
+test.clist3 <- append.connectionList(test.clist3, "C1.out", "AND3.in1")
+test.clist3 <- append.connectionList(test.clist3, "OR5.out", "AND2.in2")
+test.clist3 <- append.connectionList(test.clist3, "AND2.out", "AND3.in2")
+test.clist3 <- append.connectionList(test.clist3, "AND3.out", "out1")
 
-test.COMP3gate <- gate(input=test.intlist[1:2],
+test.COMP3gate <- gate("C3", input=test.intlist[1:5],
                        conn=test.clist3,
                        transform=test.glist3,
-                       out=list("out1"="","out2"=""))
+                       out=list("out1"=""))
 
+
+#test.glist4 <- list(AND1=test.ANDgate, C3=test.COMP3gate
