@@ -1,3 +1,26 @@
+## The idea is that we want to assert a time base for everything equally, so
+## that we can 'tick' the gates together, but we also want a hierarchical
+## arrangement of gates, so we can define functional groups of gates as a
+## unit.  But we want the functional groups to use the same 'ticks' as their
+## parent.
+##
+## This means that a transformation might have a contingent nature, returning
+## not a value, but a state of all the inputs to each of its operations, that
+## can be absorbed into the state of the parent.  So our record of the state
+## (the 'value list') has to be hierarchical in some fashion.  We will do
+## that by creating a hierarchy of the names of the inputs and outputs.  So
+## the root list might begin with a list of three inputs, but those get
+## mapped to the various inputs to this or that gate, and "in1" is translated
+## to "AND1.in1" or "C2.in2" or whatever.  Then the AND1 and C2 gates are
+## executed with whatever inputs are available.  Upon execution of AND1, its
+## inputs are renamed from "AND1.in1" to simply "in1", which is how the AND1
+## gate thinks of it.  Its output value list has names like "out" or "out1"
+## or whatever, and when reincorporating those values into the parent list,
+## they are prefixed with "AND1".  So:
+##
+##  "AND1.in1" -> "in1" -> execute AND1 gate -> "out" -> "AND1.out"
+
+
 ## TO DO list
 ##
 ##  - A function to abstract a truth table from an arbitrary gate object.
@@ -610,32 +633,6 @@ gate.execute.iter <- function(inputList, gate, tickMax=100,
 }
 
 
-########## TO DO: As of 4/23, This doesn't quite work yet, but it seems like
-########## the approach is sound.  See below.
-
-## gate.execute(ts, test.COMP2gate)
-## $this
-## inputs:
-##   in1=0 in2=1 in3=1
-## outputs:
-##   out=
-
-## $AND1
-## inputs:
-##   in1=0 in2=1
-## outputs:
-##   out=0     <<<<<<<< this seems good.
-
-## $C1
-## inputs:
-##   in1=0 in2=1 in3=1
-## outputs:
-##   in1=0 in2=1 in3=1  <<<<<<<<<< this is not.
-
-
-##### After that, we will add a monitoring layer atop the gate.execute, to
-##### control the number of ticks.  This way we can keep the sub-gates in
-##### sync with the top layer.
 
 
 
