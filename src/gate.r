@@ -213,7 +213,7 @@ connectionList <- function(src, sink) {
 ## not valid, we bomb out, but otherwise just return T or F depending on
 ## whether it looks kosher or not.
 gate.checkTypes <- function(argList, typeCatalog, inputTypes,
-                            inspect=FALSE) {
+                            inspect=FALSE, prefix="") {
 
     ## If the arglist is a gate.io object, just get the inputs list.
     if (class(argList) == "gate.io") argList <- argList$inputs;
@@ -273,7 +273,7 @@ print.gate.io <- function(gio, prefix="") {
                 cat(name, "=", gio$inputs[[name]], " ", sep="");
             cat("\n");
         } else {
-            cat("Malformed gate.io object, input list seems to be:");
+            cat(prefix, "Malformed gate.io object, input list seems to be:");
             print(gio$inputs);
             stop();
         }
@@ -283,8 +283,8 @@ print.gate.io <- function(gio, prefix="") {
                 cat(name, "=", gio$outputs[[name]], " ", sep="");
             cat("\n");
         } else {
-            cat("Malformed gate.io object, output list seems to be:");
-            print(gio$inputs);
+            cat(prefix, "Malformed gate.io object, output list seems to be:");
+            print(gio$outputs);
             stop();
             print.gate.io(gio$outputs, prefix=paste("|", prefix));
         }
@@ -296,7 +296,8 @@ print.gate.io <- function(gio, prefix="") {
         }
 
     } else {
-        cat("Don't know how to print object of class", class(gio), "\n");
+        cat(prefix, "Looking for gate.io.",
+            "Don't know how to print object of class", class(gio), "\n");
         print(gio);
         stop();
     }
@@ -305,44 +306,48 @@ print.gate.io <- function(gio, prefix="") {
 ## A named list of gate.io objects could be nested.  This function accepts a
 ## dot-separated name like "C2.C1.AND1.in1" and a list and returns the value
 ## indicated.
-gate.io.get <- function(gioList, name, inspect=FALSE) {
+gate.io.get <- function(gioList, name, inspect=FALSE, prefix="") {
     ## gioList is either a list of gate.io objects, or a single gate.io object.
     ## name is either (1) a name like "C2.C1.AND1.in1" or (2) an already
     ## split name like ["C2","C1","AND1","in1"] or (3) an atomic name like
     ## "in1".
     if (inspect) {
-        cat("gate.io.get searching for ", paste(name, collapse="."),
+        cat(prefix, " gate.io.get searching for ", paste(name, collapse="."),
             " (", length(name),  ") in\n", sep="");
-        print.gate.io(gioList, prefix="| ");
+        print.gate.io(gioList, prefix=paste("|", prefix));
     }
 
     if (length(name) == 1) {
         ## Case 1 or 3
         if (grepl("\\.", name)) {
             ## Case 1.
-            if (inspect) cat ("Case 1 .\n");
+            if (inspect) cat(prefix, "gate.io.get: Case 1 (splitting).\n");
             names <- strsplit(name, "\\.")[[1]];
-            return(gate.io.get(gioList, names, inspect=inspect));
+            return(gate.io.get(gioList, names,
+                               inspect=inspect, prefix=prefix));
         } else {
             ## Case 3.  Note that we might have got here either because we
             ## are looking for something in the "this" element, or because
             ## we've narrowed it down to the last element.  So this messy if
             ## statement covers both cases.
-            if (inspect) cat ("Case 3 .\n");
+            if (inspect) cat(prefix, "gate.io.get: Case 3 (this).\n");
             if (class(gioList) == "gate.io") {
                 ## First case (gioList is a gate.io object)
                 gioList <- gioList;
-                if (name %in% names(gioList$inputs)) { ## Is it among the inputs?
-
+                ## Is it among the inputs?
+                if (name %in% names(gioList$inputs)) {
+                    if (inspect) cat(prefix, "found it among the inputs.\n");
                     return(gioList$inputs[[name]]);
 
-                } else if (name %in% names(gioList$outputs)) { ## Or the outputs?
-
+                } else if (name %in% names(gioList$outputs)) {
+                    ## Or the outputs?
+                    if (inspect) cat(prefix, "found it among the outputs.\n");
                     return(gioList$outputs[[name]]);
 
                 } else {
                     if (inspect)
-                        cat(name, "does not appear to be in this IO list.\n");
+                        cat(prefix, "gate.io.get:", name,
+                            "does not appear to be in this IO list.\n");
                     return(NULL);
                 }
 
@@ -350,13 +355,16 @@ gate.io.get <- function(gioList, name, inspect=FALSE) {
                 ## Second case (we're looking in the this element).
                 gioList[["this"]] <- gioList[["this"]];
                 if (name %in% names(gioList[["this"]]$inputs)) {
+                    if (inspect) cat(prefix, "it was an input.\n");
                     return(gioList[["this"]]$inputs[[name]]);
 
                 } else if (name %in% names(gioList[["this"]]$outputs)) {
-                        return(gioList[["this"]]$outputs[[name]]);
+                    if(inspect) cat(prefix, "it was an output.\n");
+                    return(gioList[["this"]]$outputs[[name]]);
                 } else {
                     if (inspect)
-                        cat(name, "does not appear to be in this IO list.\n");
+                        cat(prefix, "gate.io.get:", name,
+                            "does not appear to be in this IO list.\n");
                     return(NULL);
                 }
             }
@@ -364,13 +372,15 @@ gate.io.get <- function(gioList, name, inspect=FALSE) {
     } else {
         ## Case 2.  We have a separated name list.  If the next name is not
         ## among the inputs and we have a newVal, we'll have to create it.
-        if (inspect) cat ("Case 2 .\n");
+        if (inspect) cat(prefix, "gate.io.get: Case 2 (split).\n");
         if (name[1] %in% names(gioList)) {
 
-            return(gate.io.get(gioList[[name[1]]], name[-1], inspect=inspect));
+            return(gate.io.get(gioList[[name[1]]], name[-1],
+                               inspect=inspect, prefix=paste("|", prefix)));
 
         } else {
-            if(inspect) cat("can't find:", paste(name, collapse="."), "\n");
+            if(inspect) cat(prefix, "gate.io.get can't find:",
+                            paste(name, collapse="."), "\n");
             return(NULL);
         }
     }
@@ -384,36 +394,35 @@ gate.io.get <- function(gioList, name, inspect=FALSE) {
 ## There's a certain amount of guessing done on the names you're using, so if
 ## your outputs are not named "out*" or "result" or something like that, it
 ## might not work.  Or if you name an input "out", you're asking for trouble.
-gate.io.set <- function(gioList, name, newVal=NULL, inspect=FALSE) {
+gate.io.set <- function(gioList, name, newVal=NULL,
+                        inspect=FALSE, prefix="") {
     ## gioList is either a list of gate.io objects, or a single gate.io object.
     ## name is either (1) a name like "C2.C1.AND1.in1" or (2) an already
     ## split name like ["C2","C1","AND1","in1"] or (3) an atomic name like
     ## "in1".
     if (inspect) {
-        cat("gate.io.set searching for ", paste(name, collapse="."),
+        cat(prefix, "gate.io.set searching for ", paste(name, collapse="."),
             " (", length(name),  ") ", sep="");
         if (!is.null(newVal)) {
-            cat(" to set it to >>");
-            print(newVal);
-            cat("<<\n");
+            cat(" to set it to ->", newVal, "\n");
         }
-        print.gate.io(gioList, prefix="| ");
+        print.gate.io(gioList, prefix=paste("|", prefix));
     }
 
     if (length(name) == 1) {
         ## Case 1 or 3
         if (grepl("\\.", name)) {
             ## Case 1.
-            if (inspect) cat ("Case 1 .\n");
+            if (inspect) cat(prefix, "gate.io.set: Case 1 (splitting).\n");
             names <- strsplit(name, "\\.")[[1]];
-            return(gate.io.set(gioList, names,
-                               newVal=newVal, inspect=inspect));
+            return(gate.io.set(gioList, names, newVal=newVal,
+                               inspect=inspect, prefix=prefix));
         } else {
             ## Case 3.  Note that we might have got here either because we
             ## are looking for something in the "this" element, or because
             ## we've narrowed it down to the last element.  So this messy if
             ## statement covers both cases.
-            if (inspect) cat ("Case 3 .\n");
+            if (inspect) cat(prefix, "gate.io.set: Case 3 (this).\n");
             if (class(gioList) == "gate.io") {
                 ## First case (gioList is a gate.io object)
                 gioList <- gioList;
@@ -478,13 +487,15 @@ gate.io.set <- function(gioList, name, newVal=NULL, inspect=FALSE) {
     } else {
         ## Case 2.  We have a separated name list.  If the next name is not
         ## among the inputs and we have a newVal, we'll have to create it.
-        if (inspect) cat ("Case 2 .\n");
+        if (inspect) cat(prefix, "gate.io.set: Case 2 (split).\n");
         if (name[1] %in% names(gioList)) {
 
             if (!is.null(newVal)) {
 
                 gioList[[name[1]]] <- gate.io.set(gioList[[name[1]]], name[-1],
-                                                  newVal=newVal, inspect=inspect);
+                                                  newVal=newVal,
+                                                  inspect=inspect,
+                                                  prefix=paste("|", prefix));
                 return(gioList);
             }
         } else if (!is.null(newVal)) {
@@ -495,14 +506,57 @@ gate.io.set <- function(gioList, name, newVal=NULL, inspect=FALSE) {
                 gioList[[name[1]]] <- list();
             }
             gioList[[name[1]]] <- gate.io.set(gioList[[name[1]]], name[-1],
-                                               newVal=newVal, inspect=inspect);
+                                              newVal=newVal,
+                                              inspect=inspect,
+                                              prefix=paste("|", prefix));
             return(gioList);
 
         } else {
-            if(inspect) cat("can't find:", paste(name, collapse="."), "\n");
+            if(inspect) cat("gate.io.set: can't find:",
+                            paste(name, collapse="."), "\n");
             return(NULL);
         }
     }
+}
+
+## Work through the valueList and use the connectionList to copy values
+## where they belong.  The connection name is the source, the value the
+## sink, which may have multiple entries.  The connectionlist has entries
+## like this: cL[["in1"]]$sink = "AND1.in1".  Multiple connections can be
+## listed in a comma-separated list like this: "AND1.in1,AND2.in2". No
+## spaces at the commas.
+gate.makeConnections <-
+    function(valueList, connectionList, inspect=FALSE, prefix="") {
+
+    for (cname in names(connectionList)) {
+
+        if (inspect) {
+            cat(prefix, "Checking ", cname, " against \n");
+            print.gate.io(valueList, paste("|", prefix));
+            cat(prefix, "----------------------------\n");
+        }
+
+        ## Need to move this value:
+        newInput <- gate.io.get(valueList, cname, inspect);
+
+        if (!is.null(newInput)) {
+
+            for (entry in strsplit(connectionList[[cname]]$sink, ",")[[1]]) {
+                ## To here:
+                valueList <- gate.io.set(valueList, entry, newVal=newInput,
+                                         inspect=inspect, prefix=prefix);
+
+            }
+        } else {
+            ## There is an entry in the connection list that does not appear
+            ## in the input list.
+            if (inspect) {
+                cat(prefix, "Value in connectionList does not appear",
+                    "in valueList:", cname, "\n");
+            }
+        }
+    }
+    return(valueList);
 }
 
 
@@ -515,7 +569,7 @@ gate.io.set <- function(gioList, name, newVal=NULL, inspect=FALSE) {
 ## values added and updated as necessary, so that this function can be run
 ## multiple times to 'tick' the values through the gate.  See
 ## gate.execute.iter, below.
-gate.execute <- function(inputList, gate, prefix="", inspect=FALSE) {
+gate.execute <- function(inputList, gate, inspect=FALSE, prefix="") {
     ## The inputList is either a single gate.io object, or a list of them.
     ## If it's a list, the special keyword "this" is used to indicate the
     ## inputs and outputs to this particular gate.
@@ -525,60 +579,77 @@ gate.execute <- function(inputList, gate, prefix="", inspect=FALSE) {
         valueList <- inputList;
     }
 
-    if (inspect) {
-        cat(prefix, "Entering gate.execute with ");
-        print(gate);
+    if (TRUE) {
+        cat(prefix, "Entering gate.execute with \n");
+        print.gate(gate, prefix=prefix);
     }
 
-    ## Work through the valueList and use the connectionList to copy values
-    ## where they belong.  The connection name is the source, the value the
-    ## sink, which may have multiple entries.  The connectionlist has entries
-    ## like this: cL[["in1"]]$sink = "AND1.in1".  Multiple connections can be
-    ## listed in a comma-separated list like this: "AND1.in1,AND2.in2". No
-    ## spaces at the commas.
-    for (cname in names(gate$connectionList)) {
+    if (gate$type == "atomic") {
+        cat("*************************** atomic\n");
+        print(valueList);
+        valueList$this$outputs <- gate$transform(valueList$this$inputs,
+                                                 inspect=inspect,
+                                                 prefix=prefix);
+    } else {
+        ## This is a composite gate.  First, copy all the input values to
+        ## wherever they need to be copied to, according to the connections
+        ## recorded in this gate's connection list.
+        valueList <- gate.makeConnections(valueList, gate$connectionList,
+                                          inspect=inspect, prefix=prefix);
 
-        if (inspect) {
-            cat(prefix, "Checking ", cname, " against \n");
-            print.gate.io(valueList, paste("|", prefix));
-            cat(prefix, "-----------------\n");
-        }
 
-        ## Need to move this value:
-        newInput <- gate.io.get(valueList, cname, inspect);
+        ## The valueList is prepared, so we will now loop through all gates
+        ## in our composite gate, and execute whichever we can.  The
+        ## 'checkTypes() function (wrapped inside the $transform method) will
+        ## prevent execution of the gates for which there aren't enough
+        ## inputs.
+        for (subGateName in names(gate$gateList)) {
+            if (inspect) cat(prefix, "processing", subGateName, "\n");
 
-        if (!is.null(newInput)) {
+            ## Gather all the relevant entries from the valueList
+            gateRegex <- paste("^", subGateName, "\\.*", sep="")
+            subGateEntries <- grep(gateRegex, names(valueList));
 
-            for (entry in strsplit(gate$connectionList[[cname]]$sink, ",")[[1]]) {
-            ## To here:
-                valueList <- gate.io.set(valueList, entry, newVal=newInput, inspect);
+            ## It's possible this subGate has no presence in the valueList at
+            ## this point.
+            if (length(subGateEntries) == 0) next;
 
+            ## Trim the names from valueList to work for this subGate.
+            valueSubList <- list();
+            for (i in subGateEntries) {
+
+                subName <- sub(gateRegex, "", names(valueList)[i]);
+                if (nchar(subName) == 0) subName <- "this";
+                valueSubList[[subName]] <- valueList[[i]];
             }
-        } else {
-            ## There is an entry in the connection list that does not appear
-            ## in the input list.
+
+            ## Execute the gate with the resulting list.
+            subGate <- gate$gateList[[subGateName]];
             if (inspect) {
-            cat(prefix, "Value in connectionList does not appear in valueList:",
-                cname, "\n");
+                cat(prefix, "********** executing:", subGateName, "with:\n");
+                print.gate.io(valueSubList, prefix);
+            }
+            valueSubList <- subGate$execute(valueSubList,
+                                            inspect=inspect,
+                                            prefix=paste("|", prefix));
+
+            ## Now add those values back to the original valueList.
+            for (valueName in names(valueSubList)) {
+                parentGateName <- "";
+                if (valueName == "this") {
+                    parentGateName <- subGateName;
+                } else {
+                    parentGateName <- paste(subGateName, valueName, sep=".");
+                }
+
+                valueList[[parentGateName]] <- valueSubList[[valueName]];
             }
         }
-    }
 
-    ## The valueList is prepared, so we will now loop through all the
-    ## functions in our gateList.  The 'checkTypes() function (wrapped inside
-    ## the $transform method) will prevent execution of the gates for which
-    ## there aren't enough inputs.
-    for (gateName in names(valueList)) {
-        if (gateName %in% names(gate$gateList)) {
-            cat("processing,", gateName, "\n");
-            valueList[[gateName]]$outputs <-
-                gate$gateList[[gateName]]$transform(valueList[[gateName]],
-                                                    inspect=inspect,
-                                                    prefix=paste("|", prefix));
 ########### Note that there is a "completed" function that checks to see if
 ########### there is a value for each of the expected outputs, and which
 ########### could be deployed here.
-        }
+
     }
 
     return(valueList);
@@ -612,14 +683,15 @@ gate.execute <- function(inputList, gate, prefix="", inspect=FALSE) {
 
 
 gate.execute.iter <- function(inputList, gate, tickMax=100,
-                              prefix="", inspect=FALSE) {
+                              inspect=FALSE, prefix="") {
 
     tick <- 1;
 
     ## We want to repeat the execution of the gate until there is a complete
     ## set of outputs, or until we have exceeded the tickMax value.
     repeat {
-        valueList <- gate.execute(inputList, gate, prefix=prefix, inspect=inspect);
+        valueList <- gate.execute(inputList, gate,
+                                  inspect=inspect, prefix=prefix);
 
         ## This might also be a test to see if values have stabilized.
         if (gate$complete(valueList$this$output)) break;
@@ -747,7 +819,7 @@ gate.execute.iter <- function(inputList, gate, tickMax=100,
 ##     return(outList);
 ## }
 
-## A 'gate' object has a list of input names and types and a 'transform'
+## A 'gate' object has a list of input names and types and a 'definition'
 ## function to transform inputs into a list of one or more output values.
 ## The transformation function is either an R function or it is a
 ## collection of other gate objects, with a table indicating how the the
@@ -758,7 +830,7 @@ gate.execute.iter <- function(inputList, gate, tickMax=100,
 ## node with edges in and out, or a collection of nodes and edges.
 gate <- function(gateName,
                  inputTypes,
-                 transform,
+                 definition,
                  connectionList=list(),
                  outList=c("out"),
                  color=1,
@@ -782,6 +854,8 @@ gate <- function(gateName,
 
     ## Input list checks out.
     newGate[["inputTypes"]] <- structure(inputTypes, class="typeList");
+
+    ## Define the output list.
     newGate[["outList"]] <- outList;
 
     ## This is a convenience function to say whether a list of output names
@@ -806,11 +880,11 @@ gate <- function(gateName,
 
     class(newGate) <- "gate";
 
-    ## The input transform can take two possible forms.  It is either a
+    ## The input definition can take two possible forms.  It is either a
     ## function (class='function'), that accepts an input list of
     ## name,value pairs and outputs a similar list at the other end, or it
     ## is an assembly of other gate objects (class='list').
-    if (class(transform) == "function") {
+    if (class(definition) == "function") {
         newGate[["type"]] <- "atomic";
         newGate[["gateList"]] <- NULL;
         newGate[["connectionList"]] <- NULL;
@@ -823,21 +897,25 @@ gate <- function(gateName,
                 if (!gate.checkTypes(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes,
-                                     inspect=inspect)) return(NULL);
-                return(transform(argList));
+                                     inspect=inspect)) {
+                    return(NULL);
+                }
+                return(definition(argList, newGate[["outList"]]));
             };
-    } else if (class(transform) == "list") {
+    } else if (class(definition) == "list") {
         newGate[["type"]] <- "composite";
         ## The transform is a list of other gates, hopefully accompanied by
         ## a connection list.
-        newGate[["gateList"]] <- transform;
+        newGate[["gateList"]] <- definition;
         newGate[["connectionList"]] <- connectionList;
         newGate[["transform"]] <-
             function(argList, inspect=FALSE, prefix="", tickMax=100) {
                 if (!gate.checkTypes(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes,
-                                     inspect=inspect)) return(NULL);
+                                     inspect=inspect)) {
+                    return(NULL);
+                }
                 return(gate.execute.iter(inputList=argList,
                                          gate=newGate,
                                          tickMax=4,
@@ -845,36 +923,56 @@ gate <- function(gateName,
                                          prefix=prefix));
             };
     } else {
-        cat("transform must be a function or a list.\n");
+        cat("definition must be a function or a list.\n");
         stop();
+    }
+
+    ## The 'execute' method accepts a list of inputs that may not be
+    ## complete, and returns a list of outputs that also may not be complete.
+    ## This is what you get for one 'tick' of the clock.
+    if (class(definition) == "function") {
+        newGate[["execute"]] <- function(valueList, inspect=FALSE, prefix="") {
+            ## We hope that the value list consists of only one item, a list
+            ## of inputs and outputs for this particular transformation.
+            valueList[[1]]$outputs <-
+                newGate[["transform"]](valueList[[1]]$inputs,
+                    inspect, prefix);
+            return(valueList);
+        };
+    } else {
+        ## This is a composite definition.  We need to find the 'this' data
+        newGate[["execute"]] <- function(valueList, inspect=FALSE, prefix="") {
+            return(gate.execute(valueList, newGate,
+                                inspect=inspect, prefix=prefix))
+        }
     }
 
     return(newGate);
 }
 
-print.gate <- function(g) {
+print.gate <- function(g, prefix="") {
 
-    cat("type:", g$type, "\n");
-    cat("node ID:", g$id, "\n");
-    cat("inputTypes:", format.typeList(g$inputTypes), "\n");
-    cat("expected outputs: ");
+    cat(prefix, "type:", g$type, "\n");
+    cat(prefix, "node ID:", g$id, "\n");
+    cat(prefix, "inputTypes:", format.typeList(g$inputTypes), "\n");
+    cat(prefix, "expected outputs: ");
     for (oname in g$outList) cat(oname, " ");
     cat("\n");
 
     if (g$type == "composite") {
-        cat("nodes: ");
+        cat(prefix, "nodes: ");
         for (name in names(g$gateList)) cat(name, " ");
         cat("\n");
 
-        cat("connections:\n");
+        cat(prefix, "connections:\n");
         for (name in names(g$connectionList))
-            cat("  ", name, "-->",
+            cat(prefix, "  ", name, "-->",
                 format.connectionElement(g$connectionList[[name]]), "\n");
-        cat("\n");
+        cat(prefix, "\n");
     }
 
-    cat("color:", g$color, "\n");
-    cat("shape:", g$shape, "\n");
+    cat(prefix, "color:", g$color, "\n");
+    cat(prefix, "shape:", g$shape, "\n");
 }
 
 
@@ -958,7 +1056,7 @@ gate.nodeList <- function(g, prefix="", uid=1) {
 ## Compile a table of edges for a gate, with 'from' and 'to' columns.  If a
 ## nodeList is included as an arg, use its 'id' column to reference the
 ## 'to' and 'from' columns created here.
-gate.edgeList <- function(g, prefix="", inspect=FALSE) {
+gate.edgeList <- function(g, inspect=FALSE, prefix="") {
 
     ## Prepare an empty data frame to accumulate the connections.
     out.edgeList <- data.frame(stringsAsFactors=FALSE);
@@ -1148,24 +1246,24 @@ test.clist <- append.connectionList(test.clist, "AND1.out", "OR3.in1");
 test.clist <- append.connectionList(test.clist, "AND2.out", "OR3.in2");
 test.clist <- append.connectionList(test.clist, "OR3.out", "out");
 
-test.ANDfun <- function(inlist) {
+test.ANDfun <- function(inlist, outlist) {
     out <- TRUE;
     for (l in inlist) out <- out && (l == "1");
     return(list(out=(if (out) "1" else "0")));
 }
-test.ORfun <- function(inlist) {
+test.ORfun <- function(inlist, outlist) {
     out <- FALSE;
     for (l in inlist) out <- out || (l == "1");
     return(list(out=(if (out) "1" else "0")));
 }
 test.ORgate <- gate("OR", list(in1="binary",in2="binary"), test.ORfun);
 test.ANDgate <- gate("AND", list(in1="binary",in2="binary"), test.ANDfun);
-test.glist <- list(AND1=test.ANDgate, AND2=test.ANDgate, OR3=test.ORgate)
-test.olist <- c("out")
+test.glist <- list(AND1=test.ANDgate, AND2=test.ANDgate, OR3=test.ORgate);
+test.olist <- c("out");
 
 test.COMPgate <- gate("C1", input=test.intlist[1:3],
                       conn=test.clist,
-                      transform=test.glist,
+                      definition=test.glist,
                       out=test.olist)
 
 test.glist2 <- list(AND1=test.ANDgate, C1=test.COMPgate, OR1=test.ORgate)
@@ -1178,7 +1276,7 @@ test.clist2 <- append.connectionList(test.clist2, "OR1.out","out");
 
 test.COMP2gate <- gate("C2", input=test.intlist[1:3],
                        conn=test.clist2,
-                       transform=test.glist2,
+                       definition=test.glist2,
                        out=test.olist)
 
 test.glist3 <- list(AND1=test.ANDgate, OR4=test.ORgate, OR5=test.ORgate, C2=test.COMP2gate, C1=test.COMPgate, AND2=test.ANDgate, AND3=test.ANDgate);
@@ -1197,8 +1295,8 @@ test.clist3 <- append.connectionList(test.clist3, "AND3.out", "out1")
 
 test.COMP3gate <- gate("C3", input=test.intlist[1:5],
                        conn=test.clist3,
-                       transform=test.glist3,
-                       out=c("out1"))
+                       definition=test.glist3,
+                       out=c("out1"));
 
 
 #test.glist4 <- list(AND1=test.ANDgate, C3=test.COMP3gate
@@ -1206,9 +1304,10 @@ test.COMP3gate <- gate("C3", input=test.intlist[1:5],
 test.ilist <- list(this=gate.io(inputs=list("in1"="0","in2"="1")),
                    "C1"=gate.io(inputs=list("i1"="a","i2"="b", "i3"="c"),
                                 outputs=list("out1"="","out2"="")),
-                   "C2"=list(this=gate.io(inputs=list("in1"="1")),
-                             "C3"=gate.io(inputs=list("in1"="f","in2"="g"))));
+                   "C2"=gate.io(inputs=list("in1"="1")),
+                   "C2.C3"=gate.io(inputs=list("in1"="f","in2"="g")));
 
 ts <- gate.io(inputs=list("in1"="0"))
 ts <- gate.io.set(list(this=ts), "in2", "1")
 ts <- gate.io.set(ts, "in3", "1")
+ts <- gate.io.set(ts, "in4", "0")
