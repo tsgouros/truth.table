@@ -1,3 +1,567 @@
+## A system for simulating an arbitrary arrangement of arbitrary 'gate'
+## functions that accept inputs and produce outputs.
+
+## Some generic functions that will be used by our objects.
+
+## A 'format' function to be just a print function that works well with
+## others.  Usually just the same as 'print' without the final \n.
+setGeneric(name="formatVal",
+           def=function(object, ...) {
+               standardGeneric("formatVal");
+           });
+
+## For types, checks to see if a value is a type.
+setGeneric(name="check",
+           def=function(object,testVal) {
+               standardGeneric("check");
+           });
+
+## Adds values ot the various objects.
+setGeneric(name="add",
+           def=function(object, ...) {
+               standardGeneric("add");
+           });
+
+## A generic accessor.
+setGeneric(name="getVal",
+           def=function(object, ...) {
+               standardGeneric("getVal");
+           });
+
+## A generic setter.
+setGeneric(name="setVal",
+           def=function(object, ...) {
+               standardGeneric("setVal");
+           });
+
+## We begin by establishing a system of 'types' with which to characterize
+## the inputs and outputs of the gates.  There are 'symbol' types, which can
+## assume one of several possible values, 'integer' types that can assume
+## integer values within a range, and 'float' types that can assume floating
+## point values within a range.
+type <- setClass(
+    "type",
+    slots = c(baseType="character",
+              range="character",
+              min="numeric",
+              max="numeric"),
+    prototype=c(baseType="symbol",
+                range=c("0", "1"),
+                min=0, max=1),
+    validity = function(object) {
+
+        if (!(object@baseType %in% c("symbol", "integer", "float")))
+            return("Not a valid baseType.");
+
+        if (object@baseType == "symbol") {
+            if (length(object@range) < 1) return("Need a range of values.");
+        } else {
+            if (object@max <= object@min) return("Min and max not correct.");
+        }
+        return(TRUE);
+    })
+
+setMethod("formatVal",
+          signature="type",
+          definition=function(object) {
+              if (object@baseType == "symbol") {
+                  return(paste(object@baseType, ": ",
+                               paste(object@range, collapse="/"), sep=""));
+              } else {
+                  return(paste(object@baseType, ": min: ", object@min,
+                               ", max: ", object@max, sep=""));
+              }
+          })
+
+setMethod("show",
+          signature="type",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          })
+
+## Use 'check(binary, "0")' to see whether a value is an acceptable member of
+## the given type.
+setMethod("check",
+          signature="type",
+          definition=function(object, testVal) {
+              if (object@baseType == "symbol") {
+                  if (class(testVal) != "character") return(FALSE);
+                  if (!(testVal %in% object@range)) return(FALSE);
+              } else if (object@baseType == "integer") {
+                  if (class(testVal) != "numeric") return(FALSE);
+                  if ((testVal < object@min) || (testVal > object@max))
+                      return(FALSE);
+                  if (testVal != round(testVal)) return(FALSE);
+              } else if (object@baseType == "float") {
+                  if (class(testVal) != "numeric") return(FALSE);
+                  if ((testVal < object@min) || (testVal > object@max))
+                      return(FALSE);
+                  if (testVal != round(testVal)) return(FALSE);
+              }
+              return(TRUE);
+          })
+
+binary <- type(baseType="symbol", range=c("0","1"));
+integer <- type(baseType="integer", min=0, max=100);
+float <- type(baseType="float", min=0.0, max=1.0);
+
+## Now we define a class that is just a list of types.  This is not a
+## terribly useful class, mostly exists only so that we can use the validity
+## check to assess whether such a list is valid.
+typeList <- setClass(
+    "typeList",
+    slots = c(data="list"),
+    prototype=c(data=list()),
+    validity = function(object) {
+
+        if (class(object@data) != "list") return("Not a valid list.");
+
+        if (length(object@data) > 0) {
+
+            for (i in 1:length(object@data)) {
+                if (names(object@data)[i] == "")
+                    return("All entries in the type list need a name.");
+
+                if (class(object@data[[i]]) != "type")
+                    return("Object in list is not a type.");
+
+                if (!validObject(object@data[[i]]))
+                    return("Invalid type object in list.");
+            }
+        }
+
+        return(TRUE);
+    })
+
+setMethod("initialize",
+          signature="typeList",
+          definition=function(.Object, ...) {
+
+              args <- list(...);
+              for (name in names(args)) {
+                  .Object@data[[name]] <- args[[name]];
+              }
+              validObject(.Object);
+              return(.Object);
+          });
+
+setMethod("add",
+          signature="typeList",
+          definition=function(object, ...) {
+              args <- list(...);
+              print(args);
+              for (name in names(args)) {
+                  object@data[[name]] <- args[[name]];
+              }
+              return(object);
+          });
+
+setMethod("formatVal",
+          signature="typeList",
+          definition=function(object) {
+              out <- "";
+              for (name in names(object))
+                  out <- paste(out, name, "(",
+                               formatVal(object[[name]]), ") ", sep="");
+              return(out);
+          })
+
+setMethod("show",
+          signature="typeList",
+          definition=function(object) {
+              for (name in names(object))
+                  cat(name, "(",
+                      formatVal(object[[name]]), ") ", sep="", "\n");
+          })
+
+## A couple of things to make a typeList act more like a list.
+setMethod("[[",
+          signature="typeList",
+          definition=function(x, i, j, ...) { return(x@data[[i]]); });
+
+setMethod("length",
+          signature="typeList",
+          definition=function(x) { return(length(x@data)); });
+
+setMethod("names",
+          signature="typeList",
+          definition=function(x) { return(names(x@data)); });
+
+## We define connections among the gates with a cnxnList of cnxnElements
+## specifying a set of "sinks" for each "source".  Connections can be
+## one-source-to-one-sink or one-source-to-many-sinks, but not
+## many-sources-to-one-sink.
+##
+## A cnxnElement is a connection between some source and one or more sink.
+## The cnxnElement really just has the sinks, since the source is in the key
+## of the cnxnList.  We are using an object here so that we can eventually
+## use it to hold graphic and other information about the connection.
+cnxn.id.counter <- 0;
+cnxnElement <- setClass(
+    "cnxnElement",
+    slots = c(sink="list"),
+    prototype = c(sink=list()),
+    validity = function(object) {
+
+        ## Empty sink lists are ok.
+        if (length(object@sink) < 1) return(TRUE);
+
+        for (i in 1:length(object@sink)) {
+            if (names(object@sink)[i] == "")
+                return("Need a name for each entry.");
+            if ((class(object@sink[[i]]) != "numeric") ||
+                (object@sink[[i]] != round(object@sink[[i]])))
+                return(paste("Bad ID for connection", names(object@sink)[i]));
+        }
+        return(TRUE);
+    })
+
+
+## A cnxnElement is initialized like this: cnxnElement("C2:in1", "C1:in2") or
+## cnxnElement(c("C2:in1", "C2:in2")).  Either will work.
+setMethod("initialize",
+          signature="cnxnElement",
+          definition=function(.Object, ...) {
+              for (item in list(...)) {
+                  for (subitem in item) {
+                      cnxn.id.counter <<- cnxn.id.counter + 1;
+                      .Object@sink[[subitem]] <- cnxn.id.counter;
+                  }
+              }
+              validObject(.Object);
+              ## This is magic for adjusting the global variable.
+              assign("cnxn.id.counter", cnxn.id.counter, envir = .GlobalEnv)
+              return(.Object);
+          });
+
+setMethod("formatVal",
+          signature="cnxnElement",
+          definition=function(object) {
+              out <- c();
+              if (length(object@sink) < 1) return("");
+              for (i in 1:length(object@sink)) {
+                  out <- c(out, paste(names(object@sink)[i],
+                                      "(", object@sink[[i]], ")", sep=""));
+              }
+              return(paste(out, collapse=", "));
+          });
+
+setMethod("show",
+          signature="cnxnElement",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
+
+setMethod("add",
+          signature="cnxnElement",
+          definition=function(object, ...) {
+              args <- list(...);
+              for (i in 1:length(args)) {
+
+                  cnxn.id.counter <<- cnxn.id.counter + 1;
+                  object@sink[[args[[i]] ]] <- cnxn.id.counter;
+              }
+              assign("cnxn.id.counter", cnxn.id.counter, envir = .GlobalEnv)
+              return(object);
+          });
+
+## A cnxnList is a list of connections between sources and sinks.  The input
+## specifications look like this: "<gate>:<name>" where <gate> is the name of
+## a gate in the gate list and <name> is one of the inputs or outputs
+## belonging to that gate.  e.g. "AND1:in1" and "OR3:in2" and "OR4:out".
+cnxnList <- setClass(
+    "cnxnList",
+    slots=c(data="list"),
+    prototype = c(data=list()),
+    validity = function(object) {
+        if (sum(sapply(object@data, function(x) {class(x) == "cnxnElement"})) !=
+            length(object@data)) return("All elements must be cnxnElement");
+        return(TRUE);
+    });
+
+## Initialize a cnxnList like this: cnxnList(source1, source2, ...)
+setMethod("initialize",
+          signature="cnxnList",
+          definition=function(.Object, ...){
+              args <- list(...);
+              for (i in 1:length(args)) {
+                  ## If the current source isn't represented, add it.
+                  if (!(names(args)[i] %in% names(.Object@data))) {
+                      .Object@data[[names(args)[i]]] <- cnxnElement();
+                  }
+
+                  ## Separate the sinks.
+                  sinks <- strsplit(args[[i]], split=",")[[1]];
+
+                  for (s in sinks) {
+                      .Object@data[[names(args)[i]]] <-
+                          add(.Object@data[[ names(args)[i] ]], s);
+                  }
+              }
+              validObject(.Object);
+              return(.Object);
+          });
+
+setMethod("formatVal",
+          signature="cnxnList",
+          definition=function(object, ...) {
+              args <- list(...);
+              prefix <- "";
+              if ("prefix" %in% names(args)) {
+                  prefix <- args$prefix;
+              }
+
+              out <- c();
+              for (i in 1:length(object@data)) {
+                  out <- c(out, paste(names(object@data)[i],
+                                      formatVal(object@data[[i]]),
+                                      sep=" --> "));
+              }
+              return(paste(prefix, out, sep="", collapse="\n"));
+          });
+
+setMethod("show",
+          signature="cnxnList",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
+
+## A couple of things to make a cnxnList act more like a list.
+setMethod("[[",
+          signature="cnxnList",
+          definition=function(x, i, j, ...) { return(x@data[[i]]); });
+
+setMethod("length",
+          signature="cnxnList",
+          definition=function(x) { return(length(x@data)); });
+
+setMethod("names",
+          signature="cnxnList",
+          definition=function(x) { return(names(x@data)); });
+
+## For cnxnList, this is an 'add' method, that can accept stuff like
+## "in1"="AND1.in1,AND2.in2"...  We refer to these pairs as sources and
+## sinks.  The sinks can be multiple, separated by commas.
+setMethod("add",
+          signature="cnxnList",
+          definition=function(object, ...) {
+              args <- list(...);
+              for (i in 1:length(args)) {
+                  ## If the current source isn't represented, add it.
+                  if (!(names(args)[i] %in% names(object@data))) {
+                      object@data[[names(args)[i]]] <- cnxnElement();
+                  }
+
+                  ## Separate the sinks.
+                  sinks <- strsplit(args[[i]], split=",")[[1]];
+
+                  for (s in sinks) {
+                      object@data[[names(args)[i]]] <-
+                          add(object@data[[ names(args)[i] ]], s);
+                  }
+              }
+              return(object);
+          });
+
+
+##   gateIO (holds inputs and outputs of a gate)
+gateIO <- setClass(
+    "gateIO",
+    slots=c(inputs="list", outputs="list",
+            inputTypes="typeList", outputTypes="typeList"),
+    prototype = c(inputs=list(), outputs=list(),
+                  inputTypes=typeList(), outputTypes=typeList()),
+    validity = function(object) {
+        if (class(object@inputs) != "list") return("inputs must be a list");
+        if (class(object@outputs) != "list") return("outputs must be a list");
+        if ("replace" %in% names(object@inputs))
+            return("Please don't use 'replace' for an input name.");
+        if ("replace" %in% names(object@outputs))
+            return("Please don't use 'replace' for an output name.");
+
+        if (class(object@inputTypes) != "typeList")
+            return("inputTypes should be a typeList object.");
+        if (length(object@inputs) != length(object@inputTypes@data))
+            return("Must have a type for each input.");
+        if (class(object@outputTypes) != "typeList")
+            return("outputTypes should be a typeList object.");
+        if (length(object@outputs) != length(object@outputTypes@data))
+            return("Must have a type for each output.");
+        ## Check all the values against the types.
+        for (i in 1:length(object@inputs)) {
+            cat("checking...", names(object@inputs)[i], "\n");
+            if (!check(object@inputTypes@data[[i]], object@inputs[[i]]))
+                return(paste("Bad type for argument",
+                             names(object@inputs)[i]));
+        }
+        for (i in 1:length(object@outputs)) {
+            cat("checking...", names(object@outputs)[i], "\n");
+            if (!check(object@outputTypes@data[[i]], object@outputs[[i]]))
+                return(paste("Bad type for argument",
+                             names(object@outputs)[i]));
+        }
+        return(TRUE);
+    });
+
+setMethod("initialize",
+          signature="gateIO",
+          definition=function(.Object, ...) {
+              args <- list(...);
+              if ("inputs" %in% names(args)) {
+                  .Object@inputs <- args$inputs;
+              }
+              if ("outputs" %in% names(args)) {
+                  .Object@outputs <- args$outputs;
+              } else {
+                  .Object@outputs <- list("out"=NULL);
+                  .Object@outputTypes <- typeList("out"=binary);
+              }
+              if ("inputTypes" %in% names(args)) {
+                  .Object@inputTypes <- args$inputTypes;
+              } else {
+                  ## We are creating a default input binary type.
+                  .Object@inputTypes <- typeList();
+                  for (name in names(.Object@inputs)) {
+                      .Object@inputTypes[[name]] <-
+                          type(baseType="symbol", range=c("0","1"));
+                  }
+              }
+              if ("outputTypes" %in% names(args)) {
+                  .Object@outputTypes <- args$outputTypes;
+              } else {
+                  ## Output defaults to binary type, too.
+                  .Object@outputTypes <- typeList();
+                  for (name in names(.Object@outputs)) {
+                      .Object@outputTypes[[name]] <-
+                          type(baseType="symbol", range=c("0","1"));
+                  }
+              }
+
+              validObject(.Object);
+              return(.Object);
+          });
+
+
+setMethod("formatVal",
+          signature="gateIO",
+          definition=function(object, ...) {
+              args <- list(...);
+              prefix <- "";
+              if ("prefix" %in% names(args)) {
+                  prefix <- args$prefix;
+              }
+
+              outstr <- "";
+              out <- c();
+              for (i in 1:length(object@inputs)) {
+                  out <- c(out, paste(names(object@inputs)[i], "=",
+                                      object@inputs[[i]], " (",
+                                      formatVal(object@inputTypes[[i]]),
+                                      ")", sep=""));
+              }
+              outstr <- paste(prefix, paste(out, collapse=", "), sep="");
+              if (length(object@outputs) == 0) return(outstr);
+
+              out <- c();
+              for (i in 1:length(object@outputs)) {
+                  out <- c(out, paste(names(object@outputs)[i], "=",
+                                      object@outputs[[i]], " (",
+                                      formatVal(object@outputTypes[[i]]),
+                                      ")", sep=""));
+              }
+              outstr <- paste(outstr, "\n", prefix,
+                              paste(out, collapse=", "), sep="");
+              return(outstr);
+          });
+
+setMethod("show",
+          signature="gateIO",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
+
+setMethod("getVal",
+          signature="gateIO",
+          definition=function(object, ...) {
+              args <- list(...);
+              valName <- args[[1]];
+
+              ## The valName could refer to an item among the inputs or the
+              ## outputs, so check both before giving up.
+              if (valName %in% names(object@inputs)) {
+                  return(object@inputs[[valName]]);
+              } else if (valName %in% names(object@outputs)) {
+                  return(object@outputs[[valName]]);
+              } else {
+                  return(NULL);
+              }
+          });
+
+## A convenience function.
+isOutputName <- function(vname) {
+    return(grepl("out|res", vname));
+}
+
+
+## Call like this: setVal(g, "in1"="1", replace=FALSE).  The replace arg
+## FALSE means if you don't find the name, add it to the object.  If TRUE,
+## the setter will fail if the name doesn't already exist.  You can set
+## multiple values, but please don't name any of the inputs or outputs
+## 'replace'.
+setMethod("setVal",
+          signature="gateIO",
+          definition=function(object, ...) {
+              args <- list(...);
+
+              replace <- FALSE;
+              if ("replace" %in% names(args)) replace <- args[["replace"]];
+
+              for (name in names(args)) {
+                  if (name == "replace") next;
+
+                  if (replace &&
+                      (!(name %in% names(object@inputs))) &&
+                      (!(name %in% names(object@outputs)))) {
+                      cat(name, "is not already in object.\n");
+                      stop();
+                  } else {
+                      if (isOutputName(name)) {
+                          if (check(object@outputTypes[[name]],
+                                    args[[name]])) {
+                              object@outputs[[name]] <- args[[name]];
+                          } else {
+                              cat(name, "has a bad value.\n");
+                              stop();
+                          }
+                      } else {
+                          if (check(object@inputTypes[[name]],
+                                    args[[name]])) {
+                              object@inputs[[name]] <- args[[name]];
+                          } else {
+                              cat(name, "has a bad value.\n");
+                              stop();
+                          }
+                      }
+                  }
+              }
+              return(object);
+          });
+
+
+
+
+## A gateIOList records the inputs and outputs of a gate, as well as its
+## status quo.
+
+
+##   gateIOList (list of gateIO objects, with a magic 'this'
+##                element and hierarchical names)
+
+##   gate
+
+
+
+
 ## The idea is that we want to assert a time base for everything equally, so
 ## that we can 'tick' the gates together, but we also want a hierarchical
 ## arrangement of gates, so we can define functional groups of gates as a
@@ -219,8 +783,8 @@ connectionList <- function(src, sink) {
 gate.checkTypes <- function(argList, typeCatalog, inputTypes,
                             inspect=FALSE, prefix="") {
 
-    ## If the arglist is a gateIO object, just get the inputs list.
-    if (class(argList) == "gateIO") argList <- argList$inputs;
+    ## If the arglist is a gateIOorig object, just get the inputs list.
+    if (class(argList) == "gateIOorig") argList <- argList$inputs;
 
     ## The argList list is assumed to be a collection of names and
     ## values.  For each item in that list, we run the appropriate
@@ -260,7 +824,7 @@ gate.checkTypes <- function(argList, typeCatalog, inputTypes,
 }
 
 ## Sets up inputs and outputs for a pair of name-value lists.
-gateIO <- function(inputs=list(), outputs=list("out"=NULL)) {
+gateIOorig <- function(inputs=list(), outputs=list("out"=NULL)) {
 
     if (class(inputs) != "list") {
         cat("inputs must be a list of input names and values.\n");
@@ -291,18 +855,18 @@ gateIO <- function(inputs=list(), outputs=list("out"=NULL)) {
             }
         }
 
-        return(structure(out, class="gateIO"));
+        return(structure(out, class="gateIOorig"));
     }
 
-    return(structure(out, class="gateIO"));
+    return(structure(out, class="gateIOorig"));
 }
 
-## This does double duty for printing gateIO objects, and also for lists of
+## This does double duty for printing gateIOorig objects, and also for lists of
 ## such objects.  Though of course it is only summoned automatically for the
 ## former.
-print.gateIO <- function(gio, prefix="") {
+print.gateIOorig <- function(gio, prefix="") {
 
-    if (class(gio) == "gateIO") {
+    if (class(gio) == "gateIOorig") {
 
         cat(prefix, "inputs:\n", prefix, "  ", sep="");
         if (class(gio$inputs) == "list") {
@@ -310,7 +874,7 @@ print.gateIO <- function(gio, prefix="") {
                 cat(name, "=", gio$inputs[[name]], " ", sep="");
             cat("\n");
         } else {
-            cat(prefix, "Malformed gateIO object, input list seems to be:");
+            cat(prefix, "Malformed gateIOorig object, input list seems to be:");
             print(gio$inputs);
             stop();
         }
@@ -320,27 +884,27 @@ print.gateIO <- function(gio, prefix="") {
                 cat(name, "=", gio$outputs[[name]], " ", sep="");
             cat("\n");
         } else {
-            cat(prefix, "Malformed gateIO object, output list seems to be:");
+            cat(prefix, "Malformed gateIOorig object, output list seems to be:");
             print(gio$outputs);
             stop();
-            print.gateIO(gio$outputs, prefix=paste("|", prefix));
+            print.gateIOorig(gio$outputs, prefix=paste("|", prefix));
         }
     } else if (class(gio) == "list") {
 
         for (gname in names(gio)) {
             cat(prefix, gname, ": \n", sep="");
-            print.gateIO(gio[[gname]], prefix=paste(prefix, "| ", sep=""));
+            print.gateIOorig(gio[[gname]], prefix=paste(prefix, "| ", sep=""));
         }
 
     } else {
-        cat(prefix, "Looking for gateIO.",
+        cat(prefix, "Looking for gateIOorig.",
             "Don't know how to print object of class", class(gio), "\n");
         print(gio);
         stop();
     }
 }
 
-## An object to contain a list of gateIO objects.  This is used to hold the
+## An object to contain a list of gateIOorig objects.  This is used to hold the
 ## "state" of a complicated gate or a system of gates.  The structure of a
 ## complicated gate's gioList is flat, but there is a hierarchy to the names.
 ## There is a get and set method used to return or add entries.  Entries look
@@ -352,10 +916,10 @@ print.gateIO <- function(gio, prefix="") {
 ##
 ## Note that though the class provides a "set()" method and "append()", R
 ## doesn't really do that kind of thing, so you have to use this syntax:
-##    gl <- gl$append("C1.C2"=gateIO(inputs=list("in1"="0","in2"="1")))
+##    gl <- gl$append("C1.C2"=gateIOorig(inputs=list("in1"="0","in2"="1")))
 ##    gl <- gl$set("C1.C2:in2"="0")
 gioList <- function(...) {
-    ## The input to this constructor should be one or more gateIO objects, or
+    ## The input to this constructor should be one or more gateIOorig objects, or
     ## a list of such objects.  You can also use a collection of name-value
     ## pairs, in which case they are coerced to be input and output entries
     ## to the 'this' entry.
@@ -375,8 +939,8 @@ gioList <- function(...) {
         cat(">>>>->", names(argList)[i], "->", class(argList[[i]]), "<<\n", sep="");
         if ((names(argList)[i])=="") cat("NULL value\n");
 
-        ## If this is a gateIO object, just add it.
-        if (class(argList[[i]]) == "gateIO") {
+        ## If this is a gateIOorig object, just add it.
+        if (class(argList[[i]]) == "gateIOorig") {
 
             if (names(argList)[i] == "") {
                 ## There is no name for this object, so make it 'this'.
@@ -390,7 +954,7 @@ gioList <- function(...) {
 
             ## If there isn't a 'this' entry, create one.
             if (is.null(out$data$this))
-                out$data[["this"]] <- gateIO();
+                out$data[["this"]] <- gateIOorig();
 
             if (names(argList)[i] == "") {
                 ## Like "in2"
@@ -420,14 +984,14 @@ gioList <- function(...) {
 ## This function accepts a dot-separated name like "C2.C1.AND1:in1" and a
 ## list and returns the value indicated.  The hierarchy is in the name, so we
 ## only need to separate at the suffix, match the gate name, and find the
-## suffix value among the inputs or outputs of the gateIO object.
-gateIO.get <- function(gioList, name, inspect=FALSE, prefix="") {
-    ## gioList is either a list of gateIO objects, or a single gateIO
+## suffix value among the inputs or outputs of the gateIOorig object.
+gateIOorig.get <- function(gioList, name, inspect=FALSE, prefix="") {
+    ## gioList is either a list of gateIOorig objects, or a single gateIOorig
     ## object.  name is either (1) a name like "C2.C1.AND1:in1" or (2) an
     ## atomic name like "in1".
     if (inspect) {
-        cat(prefix, "gateIO.get searching for", name, "in\n");
-        print.gateIO(gioList, prefix=paste("|", prefix));
+        cat(prefix, "gateIOorig.get searching for", name, "in\n");
+        print.gateIOorig(gioList, prefix=paste("|", prefix));
     }
 
     ## Check for suffix
@@ -437,20 +1001,20 @@ gateIO.get <- function(gioList, name, inspect=FALSE, prefix="") {
         targetFeature <- nameSplit[2];
 
         if (targetGate %in% names(gioList)) {
-            return(gateIO.get(gioList[[targetGate]], targetFeature,
+            return(gateIOorig.get(gioList[[targetGate]], targetFeature,
                                inspect=inspect, prefix=paste("|", prefix)));
         } else {
-            if (inspect) cat(prefix, "gateIO.get: Can't find",
+            if (inspect) cat(prefix, "gateIOorig.get: Can't find",
                              targetGate, "\n");
             return(NULL);
         }
     } else {
         ## No suffix, so hopefully the name is something like "in1" and the
-        ## gioList is either a single gateIO object or a list, in which case
+        ## gioList is either a single gateIOorig object or a list, in which case
         ## we need to look in the 'this' object.  So this messy if statement
         ## covers both cases.
-        if (class(gioList) == "gateIO") {
-            ## First case (gioList is a gateIO object)
+        if (class(gioList) == "gateIOorig") {
+            ## First case (gioList is a gateIOorig object)
 
             if (name %in% names(gioList$inputs)) {
                 ## Is it among the inputs?
@@ -464,7 +1028,7 @@ gateIO.get <- function(gioList, name, inspect=FALSE, prefix="") {
 
             } else {
                 if (inspect)
-                    cat(prefix, "gateIO.get:", name,
+                    cat(prefix, "gateIOorig.get:", name,
                         "does not appear to be in this IO list.\n");
                 return(NULL);
             }
@@ -481,7 +1045,7 @@ gateIO.get <- function(gioList, name, inspect=FALSE, prefix="") {
 
             } else {
                 if (inspect)
-                    cat(prefix, "gateIO.get:", name,
+                    cat(prefix, "gateIOorig.get:", name,
                         "does not appear to be in this IO list.\n");
                 return(NULL);
             }
@@ -489,23 +1053,23 @@ gateIO.get <- function(gioList, name, inspect=FALSE, prefix="") {
     }
 }
 
-## Like gateIO.get, but this sets a value within a list of gateIO objects
-## and returns the modified gateIO list.  If you try to set something that
+## Like gateIOorig.get, but this sets a value within a list of gateIOorig objects
+## and returns the modified gateIOorig list.  If you try to set something that
 ## does not exist, it is created for you.  If you don't want that behavior,
 ## set the 'modify' arg to FALSE.
 ##
 ## There's a certain amount of guessing done on the names you're using, so if
 ## your outputs are not named "out*" or "result" or something like that, it
 ## might not work.  Or if you name an input "out", you're asking for trouble.
-gateIO.set <- function(gioList, name, newVal, modify=TRUE,
+gateIOorig.set <- function(gioList, name, newVal, modify=TRUE,
                         inspect=FALSE, prefix="") {
-    ## gioList is either a list of gateIO objects, or a single gateIO
+    ## gioList is either a list of gateIOorig objects, or a single gateIOorig
     ## object.  name is either (1) a name like "C2.C1.AND1:in1" or (2) an
     ## atomic name like "in1".
     if (inspect) {
-        cat(prefix, "gateIO.set searching for", name,
+        cat(prefix, "gateIOorig.set searching for", name,
             " to set it to ->", newVal, ". List:\n");
-        print.gateIO(gioList, prefix=paste("|", prefix));
+        print.gateIOorig(gioList, prefix=paste("|", prefix));
     }
 
     if (grepl(":", name)) {
@@ -515,15 +1079,15 @@ gateIO.set <- function(gioList, name, newVal, modify=TRUE,
 
         if (targetGate %in% names(gioList)) {
             gioList[[targetGate]] <-
-                gateIO.set(gioList[[targetGate]], targetFeature, newVal,
+                gateIOorig.set(gioList[[targetGate]], targetFeature, newVal,
                             inspect=inspect, prefix=paste("|", prefix));
             return(gioList);
 
         } else {
-            if (inspect) cat(prefix, "gateIO.set: Can't find",
+            if (inspect) cat(prefix, "gateIOorig.set: Can't find",
                              targetGate, "\n");
             if (!modify) {
-                cat(prefix, "gateIO.set: Can't find", targetGate,
+                cat(prefix, "gateIOorig.set: Can't find", targetGate,
                     "stopping.\n");
                 stop();
             }
@@ -537,16 +1101,16 @@ gateIO.set <- function(gioList, name, newVal, modify=TRUE,
                     "wants to start with", targetFeature, "\n");
                 stop();
             }
-            gioList[[targetGate]] <- gateIO(inputs=target);
+            gioList[[targetGate]] <- gateIOorig(inputs=target);
             return(gioList);
         }
     } else {
         ## No suffix, so hopefully the name is something like "in1" and the
-        ## gioList is either a single gateIO object or a list, in which case
+        ## gioList is either a single gateIOorig object or a list, in which case
         ## we need to look in the 'this' object.  So this messy if statement
         ## covers both cases.
-        if (class(gioList) == "gateIO") {
-            ## First case (gioList is a gateIO object)
+        if (class(gioList) == "gateIOorig") {
+            ## First case (gioList is a gateIOorig object)
 
             ## Is this an output sort of a name?
             if (grepl("out|res", name)) {
@@ -555,7 +1119,7 @@ gateIO.set <- function(gioList, name, newVal, modify=TRUE,
                     if (!(name %in% names(gioList$outputs))) {
                         if (inspect) {
                             cat(prefix, name, "not present in ");
-                            print.gateIO(gioList, prefix=prefix);
+                            print.gateIOorig(gioList, prefix=prefix);
                         }
                         return(gioList);
                     }
@@ -568,7 +1132,7 @@ gateIO.set <- function(gioList, name, newVal, modify=TRUE,
                     if (!(name %in% names(gioList$inputs))) {
                         if (inspect) {
                             cat(prefix, name, "not present in ");
-                            print.gateIO(gioList, prefix=prefix);
+                            print.gateIOorig(gioList, prefix=prefix);
                         }
                         return(gioList);
                     }
@@ -587,7 +1151,7 @@ gateIO.set <- function(gioList, name, newVal, modify=TRUE,
                     if (!(name %in% names(gioList$this$outputs))) {
                         if (inspect) {
                             cat(prefix, name, "not present in ");
-                            print.gateIO(gioList$this, prefix=prefix);
+                            print.gateIOorig(gioList$this, prefix=prefix);
                         }
                         return(gioList);
                     }
@@ -600,7 +1164,7 @@ gateIO.set <- function(gioList, name, newVal, modify=TRUE,
                     if (!(name %in% names(gioList$this$inputs))) {
                         if (inspect) {
                             cat(prefix, name, "not present in ");
-                            print.gateIO(gioList$this, prefix=prefix);
+                            print.gateIOorig(gioList$this, prefix=prefix);
                         }
                         return(gioList);
                     }
@@ -626,18 +1190,18 @@ gate.makeConnections <-
 
         if (inspect) {
             cat(prefix, "Checking ", cname, " against \n");
-            print.gateIO(valueList, paste("|", prefix));
+            print.gateIOorig(valueList, paste("|", prefix));
             cat(prefix, "----------------------------\n");
         }
 
         ## Need to move this value:
-        newInput <- gateIO.get(valueList, cname, inspect);
+        newInput <- gateIOorig.get(valueList, cname, inspect);
 
         if (!is.null(newInput)) {
 
             for (entry in strsplit(connectionList[[cname]]$sink, ",")[[1]]) {
                 ## To here:
-                valueList <- gateIO.set(valueList, entry, newVal=newInput,
+                valueList <- gateIOorig.set(valueList, entry, newVal=newInput,
                                          inspect=inspect, prefix=prefix);
 
             }
@@ -658,16 +1222,16 @@ gate.makeConnections <-
 ## the input list to wherever the gate's connection list dictates, then
 ## executes as many components of the gate have a complete set of inputs.
 ##
-## The input is a gateIO object or a list of gateIO objects with one of
+## The input is a gateIOorig object or a list of gateIOorig objects with one of
 ## them identified as 'this'.  The output is exactly the same thing, with
 ## values added and updated as necessary, so that this function can be run
 ## multiple times to 'tick' the values through the gate.  See
 ## gate.execute.iter, below.
 gate.execute <- function(inputList, gate, inspect=FALSE, prefix="") {
-    ## The inputList is either a single gateIO object, or a list of them.
+    ## The inputList is either a single gateIOorig object, or a list of them.
     ## If it's a list, the special keyword "this" is used to indicate the
     ## inputs and outputs to this particular gate.
-    if (class(inputList) == "gateIO") {
+    if (class(inputList) == "gateIOorig") {
         valueList <- list(this=inputList);
     } else {
         valueList <- inputList;
@@ -721,7 +1285,7 @@ gate.execute <- function(inputList, gate, inspect=FALSE, prefix="") {
             subGate <- gate$gateList[[subGateName]];
             if (inspect) {
                 cat(prefix, "********** executing:", subGateName, "with:\n");
-                print.gateIO(valueSubList, prefix);
+                print.gateIOorig(valueSubList, prefix);
             }
             valueSubList <- subGate$execute(valueSubList,
                                             inspect=inspect,
@@ -1395,13 +1959,13 @@ test.COMP3gate <- gate("C3", input=test.intlist[1:5],
 
 #test.glist4 <- list(AND1=test.ANDgate, C3=test.COMP3gate
 
-test.ilist <- list(this=gateIO(inputs=list("in1"="0","in2"="1")),
-                   "C1"=gateIO(inputs=list("i1"="a","i2"="b", "i3"="c"),
+test.ilist <- list(this=gateIOorig(inputs=list("in1"="0","in2"="1")),
+                   "C1"=gateIOorig(inputs=list("i1"="a","i2"="b", "i3"="c"),
                                 outputs=list("out1"="","out2"="")),
-                   "C2"=gateIO(inputs=list("in1"="1")),
-                   "C2.C3"=gateIO(inputs=list("in1"="f","in2"="g")));
+                   "C2"=gateIOorig(inputs=list("in1"="1")),
+                   "C2.C3"=gateIOorig(inputs=list("in1"="f","in2"="g")));
 
-ts <- gateIO(inputs=list("in1"="0"))
-ts <- gateIO.set(list(this=ts), "in2", "1")
-ts <- gateIO.set(ts, "in3", "1")
-ts <- gateIO.set(ts, "in4", "0")
+ts <- gateIOorig(inputs=list("in1"="0"))
+ts <- gateIOorig.set(list(this=ts), "in2", "1")
+ts <- gateIOorig.set(ts, "in3", "1")
+ts <- gateIOorig.set(ts, "in4", "0")
