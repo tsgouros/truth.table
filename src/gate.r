@@ -34,6 +34,12 @@ setGeneric(name="setVal",
                standardGeneric("setVal");
            });
 
+## A generic subset-getter.
+setGeneric(name="subset",
+           def=function(object, ...) {
+               standardGeneric("subset");
+           });
+
 ## We begin by establishing a system of 'types' with which to characterize
 ## the inputs and outputs of the gates.  There are 'symbol' types, which can
 ## assume one of several possible values, 'integer' types that can assume
@@ -198,7 +204,7 @@ setMethod("names",
 ## The cnxnElement really just has the sinks, since the source is in the key
 ## of the cnxnList.  We are using an object here so that we can eventually
 ## use it to hold graphic and other information about the connection.
-cnxn.id.counter <- 0;
+cnxnIDCounter <- 0;
 cnxnElement <- setClass(
     "cnxnElement",
     slots = c(sink="list", color="vector", weight="numeric"),
@@ -227,13 +233,13 @@ setMethod("initialize",
           definition=function(.Object, ...) {
               for (item in list(...)) {
                   for (subitem in item) {
-                      cnxn.id.counter <<- cnxn.id.counter + 1;
-                      .Object@sink[[subitem]] <- cnxn.id.counter;
+                      cnxnIDCounter <<- cnxnIDCounter + 1;
+                      .Object@sink[[subitem]] <- cnxnIDCounter;
                   }
               }
               validObject(.Object);
               ## This is magic for adjusting the global variable.
-              assign("cnxn.id.counter", cnxn.id.counter, envir = .GlobalEnv)
+              assign("cnxnIDCounter", cnxnIDCounter, envir = .GlobalEnv)
               return(.Object);
           });
 
@@ -261,10 +267,10 @@ setMethod("add",
               args <- list(...);
               for (i in 1:length(args)) {
 
-                  cnxn.id.counter <<- cnxn.id.counter + 1;
-                  object@sink[[args[[i]] ]] <- cnxn.id.counter;
+                  cnxnIDCounter <<- cnxnIDCounter + 1;
+                  object@sink[[args[[i]] ]] <- cnxnIDCounter;
               }
-              assign("cnxn.id.counter", cnxn.id.counter, envir = .GlobalEnv)
+              assign("cnxnIDCounter", cnxnIDCounter, envir = .GlobalEnv)
               return(object);
           });
 
@@ -290,18 +296,23 @@ setMethod("initialize",
           signature="cnxnList",
           definition=function(.Object, ...) {
               args <- list(...);
-              for (i in 1:length(args)) {
-                  ## If the current source isn't represented, add it.
-                  if (!(names(args)[i] %in% names(.Object@data))) {
-                      .Object@data[[names(args)[i]]] <- cnxnElement();
-                  }
+              if (length(args) > 0) {
+                  print(args);
+                  args <- list(...);
+                  for (i in 1:length(args)) {
+                      ## If the current source isn't represented, add it.
+                      if ((is.null(.Object@data)) ||
+                          (!(names(args)[i] %in% names(.Object@data)))) {
+                          .Object@data[[names(args)[i]]] <- cnxnElement();
+                      }
 
-                  ## Separate the sinks.
-                  sinks <- strsplit(args[[i]], split=",")[[1]];
+                      ## Separate the sinks.
+                      sinks <- strsplit(args[[i]], split=",")[[1]];
 
-                  for (s in sinks) {
-                      .Object@data[[names(args)[i]]] <-
-                          add(.Object@data[[ names(args)[i] ]], s);
+                      for (s in sinks) {
+                          .Object@data[[names(args)[i]]] <-
+                              add(.Object@data[[ names(args)[i] ]], s);
+                      }
                   }
               }
               validObject(.Object);
@@ -319,10 +330,12 @@ setMethod("formatVal",
               }
 
               out <- c();
-              for (i in 1:length(object@data)) {
-                  out <- c(out, paste(names(object@data)[i],
-                                      formatVal(object@data[[i]]),
-                                      sep=" --> "));
+              if (length(object@data) > 0) {
+                  for (i in 1:length(object@data)) {
+                      out <- c(out, paste(names(object@data)[i],
+                                          formatVal(object@data[[i]]),
+                                          sep=" --> "));
+                  }
               }
               return(paste(prefix, out, sep="", collapse="\n"));
           });
@@ -369,6 +382,13 @@ setMethod("add",
               }
               return(object);
           });
+
+
+############################################################################
+## Change this to have a "gval" object that is a value and a type.  Then
+## gateIO is simply two lists of gval objects instead of being an input and
+## associated inputTypes object.
+############################################################################
 
 
 ##   gateIO (holds inputs and outputs of a gate)
@@ -632,11 +652,14 @@ setMethod("initialize",
               ## Create a 'this' object.
               .Object@data[["this"]] <- gateIO();
 
-              for (i in 1:length(args)) {
-                  if (names(args)[i] == "") {
-                      .Object@data[["this"]] <- args[[i]];
-                  } else {
-                      .Object@data[[names(args)[i]]] <- args[[i]];
+              if (length(args) > 0) {
+
+                  for (i in 1:length(args)) {
+                      if (names(args)[i] == "") {
+                          .Object@data[["this"]] <- args[[i]];
+                      } else {
+                          .Object@data[[names(args)[i]]] <- args[[i]];
+                      }
                   }
               }
 
@@ -686,13 +709,29 @@ setMethod("show",
           });
 
 ## The things to make a gateIOList act more like a list.
+
+## You can do gl[[1]] or gl[["AND2"]] or gl[["^C1"]] in which case we invoke
+## the subset() method.
 setMethod("[[",
           signature="gateIOList",
-          definition=function(x, i, j, ...) { return(x@data[[i]]); });
+          definition=function(x, i, j, ...) {
+              ## If this is a regex to match the beginning of the name, use
+              ## the subset method.
+              if ((class(i) == "character") && (substr(i, 1, 1) == "^")) {
+                  return(subset(x, expr=i));
+              } else {
+                  return(x@data[[i]]);
+              }
+          });
 
 setMethod("[[<-",
           signature="gateIOList",
           definition=function(x, i, j, ..., value) {
+              if ((class(i) == "character") && (substr(i, 1, 1) == "^")) {
+                  cat("can't use that kind of subsetting with assignments.\n");
+                  stop();
+              }
+
               if (class(value) == "gateIO") {
                   x@data[[i]] <- value;
               } else {
@@ -709,6 +748,331 @@ setMethod("length",
 setMethod("names",
           signature="gateIOList",
           definition=function(x) { return(names(x@data)); });
+
+## From here, we want to build a couple of facilities for managing the
+## hierarchical names of the gateIOList.  For example, give me all the names
+## with a given prefix, or incorporate this sub-list with this prefix and
+## that sort of thing.
+
+## add(gateIOList, "AND1:in1", "0", binary)
+
+## add(gateIOList, "AND1", gateIO object)
+
+## subset(gateIOList, "C1.*") -> gives you the list with all the names that
+## begin with "C1", with the "C1" removed from the ones that have it as a
+## prefix, and the "C1" entry itself turned to 'this', for input to the C1
+## gate.  We considered doing this with the '[[' method, but that seemed like
+## it would interfere with simpler usages.
+setMethod("subset",
+          signature = "gateIOList",
+          definition= function(object, ...) {
+              args <- list(...);
+
+              if (!("expr" %in% names(args))) {
+                  cat("Need an expression to subset with.\n");
+                  stop();
+              }
+
+              outList <- gateIOList();
+              target <- args[["expr"]];
+              ## If the target ends with a '.', erase it.
+              if (substr(target, nchar(target), nchar(target)) == ".")
+                  target <- substr(target, 1, (nchar(target) - 1));
+
+              for (name in names(object@data)) {
+                  if (grepl(paste("^", target, sep=""), name)) {
+                      newName <- sub(target, "", name);
+                      if (newName == "") {
+                          newName <- "this";
+                      } else {
+                          ## Drop the '.'.
+                          newName <- substr(newName, 2, nchar(newName));
+                      }
+
+                      outList[[newName]] <- object@data[[name]];
+                  }
+              }
+              return(outList);
+          });
+
+
+## Two forms:
+## add(gatIOList, newName=gateIO.item) and
+## add(gateIOList, tag="C1", sublist=C1sublist) Incorporates the output
+## sublist from the C1 gate back into a larger list, prepending "C1" to
+## all the names.
+setMethod("add",
+          signature = "gateIOList",
+          definition = function(object, ...) {
+              args <- list(...);
+
+              if ("sublist" %in% names(args)) {
+                  ## Basic type checking.
+                  if (!("tag" %in% names(args)) &&
+                      (class(args[["tag"]] != "character"))) {
+                      cat("A sublist needs a valid tag.\n");
+                      stop();
+                  }
+                  if (class(args[["sublist"]]) != "gateIOList") {
+                      cat("sublist is for joining two gateIOList objects.\n");
+                      stop();
+                  }
+
+                  ## Sort through the input list and add the values to the
+                  ## output object, with the new names on them.
+                  for (name in names(args[["sublist"]])) {
+                      if (name == "this") {
+                          object[[args[["tag"]] ]] <-
+                              args[["sublist"]][[name]];
+                      } else {
+                          object[[paste(args[["tag"]], name, sep=".")]] <-
+                              args[["sublist"]][[name]];
+                      }
+                  }
+              } else {
+                  ## This is just one or more gateIO objects (though we'll
+                  ## check that) to be added to the output object.
+                  for (name in names(args)) {
+                      if (class(args[[name]]) != "gateIO") {
+                          cat(name, "must be a gateIO object.\n");
+                          stop();
+                      }
+
+                      object[[name]] <- args[[name]];
+                  }
+              }
+              return(object);
+          });
+
+## After that, the next step is to implement the gate object, that can be
+## either a function or an composite of other functions, including functions
+## to manage the ticks of the clock.
+
+
+## Define a type-checking function for an input list.  The argument list is a
+## list of argument names and values, essentially the '@inputs' slot of a
+## gateIO object.  (You can call this with a whole gateIO object, but we just
+## strip off the inputs in the first step.)  The 'inputTypes' arg is a list
+## of names and types, using the same names as the input list, with which we
+## can use the 'check' method to confirm types.  If the argList is not valid,
+## we bomb out, but otherwise just return T or F depending on whether it
+## looks kosher or not.
+gate.checkTypes <- function(argList, inputTypes,
+                            inspect=FALSE, prefix="") {
+
+    ## If the arglist is a gateIO object, just get the inputs list.
+    if (class(argList) == "gateIO") argList <- argList@inputs;
+
+    ## The argList list is assumed to be a collection of names and values.
+    ## For each item in that list, we run the appropriate checker function.
+    if ((class(argList) != "list") && (class(argList) != "gateIO")) {
+        cat("The input to a gate is a list of input names and values.\n");
+        print(argList);
+        cat("---->", class(argList));
+        cat("... does not qualify.\n");
+        stop();
+    }
+    ## There should be exactly as many name,value pairs as name,type pairs.
+    if (length(argList) != length(inputTypes)) {
+        if (inspect) cat("There are", length(argList),
+                         "arguments to this transformation, but",
+                         length(inputTypes), "are expected.\n");
+        return(FALSE);
+    }
+
+    for (arg in names(argList)) {
+
+        ## If there's a name mismatch, that's not good.
+        if (!(arg %in% names(inputTypes))) {
+            if (inspect) cat(arg, "does not appear in the list of expected",
+                             "inputs:", paste(names(inputTypes), collapse=" "),
+                             "\n");
+            return(FALSE);
+        }
+
+        if (!check(inputTypes[[arg]], argList[[arg]]))  {
+            if (inspect) cat(prefix, arg, "is not a valid", inputTypes[[arg]],
+                             "type object.\n");
+            return(FALSE);
+        }
+    }
+    return(TRUE);
+}
+
+## This function accepts a list of inputs and a gate.  It copies the items in
+## the input list to wherever the gate's connection list dictates, then
+## executes all the components of the gate that have a complete set of
+## inputs.
+##
+## The input is a gateIO object or a list of gateIO objects with one of
+## them identified as 'this'.  The output is exactly the same thing, with
+## values added and updated as necessary, so that this function can be run
+## multiple times to 'tick' the values through the gate.  See
+## gate.execute.old.iter, below.
+
+gateIDCounter <- 0;
+gate <- setClass(
+    "gate",
+    slots=c(inputTypes="typeList",
+            outputTypes="typeList",
+            definition="function",
+            nodeList="list",
+            cnxnList="cnxnList",
+            color="vector",
+            shape="numeric",
+            transform="function",
+            transformOnce="function",
+            id="numeric",
+            type="character"),
+    validity=function(object) {
+        print(class(object@inputTypes));
+        if (class(object@inputTypes) != "typeList")
+            return("inputTypes must be a typeList object.");
+
+        if (class(object@outputTypes) != "typeList")
+            return("outputTypes must be a typeList object");
+
+        if (class(object@definition) != "function")
+            return("definition must be a function if you specify it.");
+
+        if (!is.null(object@transform) &&
+            class(object@transform) != "function")
+            return("transform is a function.");
+
+        if (length(object@nodeList) > 0)
+            return("Choose either a transform or a nodeList, not both.");
+
+        if (class(object@transformOnce) != "function")
+            return("transformOnce must be a function.");
+
+        if (class(object@nodeList) != "list")
+            return("nodeList must be a list.");
+
+        if ((length(object@nodeList) > 0) &&
+            (sum(sapply(object@nodeList, function(x) class(x) == "gate")) !=
+             length(object@nodeList)))
+            return("All elements of a nodeList must be gate objects.");
+
+        if (class(object@cnxnList) != "cnxnList")
+            return("The cnxnList must be a cnxnList, of course.");
+
+        if ((class(object@color) != "numeric") ||
+            (length(object@color) != 3))
+            return("Express color as a three-element vector.");
+
+        if (class(object@shape) != "numeric")
+            return("Shape is numeric, please.");
+
+        if (! ((class(object@type) == "character") &&
+               ((object@type == "atomic") || (object@type == "compound"))))
+            return("Type must be 'atomic' or 'compound'.");
+
+        return(TRUE);
+    });
+
+setMethod("initialize",
+          signature = "gate",
+          definition = function(.Object, ...) {
+
+              gateIDCounter <<- gateIDCounter + 1;
+              .Object@id <- gateIDCounter;
+              assign("gateIDCounter", gateIDCounter, envir=.GlobalEnv);
+
+              ## Set default values for args that can be omitted.
+              .Object@inputTypes <- typeList();
+              .Object@outputTypes <- typeList();
+              .Object@nodeList  <-  list();
+              .Object@cnxnList  <-  cnxnList();
+              .Object@color <- vector("numeric",3);
+              .Object@shape <- 1;
+
+              ## Parse constructor arguments.
+              args <- list(...);
+
+              ## This is a little trickery to set the slots from the args
+              ## list even if the names are not spelled out completely.
+              for (name in names(args)) {
+                  slotIndex <- grepl(paste("^", name, sep=""),
+                                     slotNames("gate"));
+                  if (sum(slotIndex) == 1) {
+                      cat("***", slotNames("gate")[slotIndex],"\n");
+                      show(args[[name]]);
+                      slot(.Object, slotNames("gate")[slotIndex]) <-
+                          args[[name]];
+                  } else {
+                      cat("ambiguous arguments to gate initialization.\n");
+                      stop();
+                  }
+              }
+
+              if (is.null(.Object@transform)) {
+                  ## Make a function to execute the nodeList.
+                  .Object@transformOnce <-
+                      function(argList, inspect=FALSE, prefix="") {
+                          return(argList);
+                      };
+                  .Object@transform <- function(arglist, tickMax=100,
+                                                inspect=FALSE, prefix="") {
+                      return(.Object@nodeList);
+                  }
+
+                  .Object@type="compound";
+
+              } else {
+                  ## This must be an atomic gate transform.
+                  .Object@transformOnce <- function(argList,
+                                                    inspect=FALSE, prefix="") {
+                      ## We hope argList is a gateIOList of length 1.
+                      if ((class(argList) != "gateIOList") ||
+                          (length(argList) != 1)) {
+                          cat("Bad inputs to transformOnce\n");
+                          stop();
+                      }
+
+                      if (!gate.checkTypes(argList=argList[["this"]],
+                                           inputTypes=.Object@inputTypes,
+                                           inspect=inspect,
+                                           prefix=prefix)) {
+                          if (inspect) cat(prefix, "Arg of bad type.\n");
+                          return(NULL);
+                      }
+                      print(argList);
+
+                      ## Execute the transformation's definition.
+                      outList <- .Object@definition(argList[["this"]]@inputs,
+                                                    .Object@outTypes);
+
+                      for (name in names(outList)) {
+                          argList[["this"]] <-
+                              setVal(argList[["this"]],
+
+    ## Call like this: g <- setVal(g, "in1"="1", type=binary, replace=FALSE).
+
+
+    argList[["this"]]@outputs <-
+
+                      print(argList[["this"]]@outputs);
+                      return(argList);
+                  };
+                  ## For an atomic transform, this is pretty much the same as
+                  ## transformOnce, with a slightly different set of inputs.
+                  .Object@transform <- function(argList, tickMax=100,
+                                                inspect=FALSE, prefix="") {
+                      print(argList);
+                      g <- gateIOList(this=gateIO(inputs=argList));
+                      out <- .Object@transformOnce(g, inspect=inspect,
+                                                   prefix=prefix);
+                      return(out[["this"]]@outputs);
+                  };
+                  .Object@nodeList <- list();
+                  .Object@cnxnList <- cnxnList();
+                  .Object@type <- "atomic";
+
+              }
+
+              validObject(.Object);
+              return(.Object);
+          });
 
 
 ## The idea is that we want to assert a time base for everything equally, so
@@ -929,7 +1293,7 @@ connectionList <- function(src, sink) {
 ## a list of names and types expected by some function.  If the argList is
 ## not valid, we bomb out, but otherwise just return T or F depending on
 ## whether it looks kosher or not.
-gate.checkTypes <- function(argList, typeCatalog, inputTypes,
+gate.checkTypes.old <- function(argList, typeCatalog, inputTypes,
                             inspect=FALSE, prefix="") {
 
     ## If the arglist is a gateIOorig object, just get the inputs list.
@@ -1375,8 +1739,8 @@ gate.makeConnections <-
 ## them identified as 'this'.  The output is exactly the same thing, with
 ## values added and updated as necessary, so that this function can be run
 ## multiple times to 'tick' the values through the gate.  See
-## gate.execute.iter, below.
-gate.execute <- function(inputList, gate, inspect=FALSE, prefix="") {
+## gate.execute.old.iter, below.
+gate.execute.old <- function(inputList, gate, inspect=FALSE, prefix="") {
     ## The inputList is either a single gateIOorig object, or a list of them.
     ## If it's a list, the special keyword "this" is used to indicate the
     ## inputs and outputs to this particular gate.
@@ -1387,7 +1751,7 @@ gate.execute <- function(inputList, gate, inspect=FALSE, prefix="") {
     }
 
     if (TRUE) {
-        cat(prefix, "Entering gate.execute with \n");
+        cat(prefix, "Entering gate.execute.old with \n");
         print.gate(gate, prefix=prefix);
     }
 
@@ -1489,7 +1853,7 @@ gate.execute <- function(inputList, gate, inspect=FALSE, prefix="") {
 ## values, if the gate indicated is a composite.
 
 
-gate.execute.iter <- function(inputList, gate, tickMax=100,
+gate.execute.old.iter <- function(inputList, gate, tickMax=100,
                               inspect=FALSE, prefix="") {
 
     tick <- 1;
@@ -1497,7 +1861,7 @@ gate.execute.iter <- function(inputList, gate, tickMax=100,
     ## We want to repeat the execution of the gate until there is a complete
     ## set of outputs, or until we have exceeded the tickMax value.
     repeat {
-        valueList <- gate.execute(inputList, gate,
+        valueList <- gate.execute.old(inputList, gate,
                                   inspect=inspect, prefix=prefix);
 
         ## This might also be a test to see if values have stabilized.
@@ -1635,7 +1999,7 @@ gate.execute.iter <- function(inputList, gate, tickMax=100,
 ##
 ## A gate object also has a graphical representation, either as a single
 ## node with edges in and out, or a collection of nodes and edges.
-gate <- function(gateName,
+gatey <- function(gateName,
                  inputTypes,
                  definition,
                  connectionList=list(),
@@ -1701,7 +2065,7 @@ gate <- function(gateName,
         ## transform is a list of one or more labeled values.
         newGate[["transform"]] <-
             function(argList, inspect=FALSE, prefix="", tickMax=100) {
-                if (!gate.checkTypes(argList=argList,
+                if (!gate.checkTypes.old(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes,
                                      inspect=inspect)) {
@@ -1717,13 +2081,13 @@ gate <- function(gateName,
         newGate[["connectionList"]] <- connectionList;
         newGate[["transform"]] <-
             function(argList, inspect=FALSE, prefix="", tickMax=100) {
-                if (!gate.checkTypes(argList=argList,
+                if (!gate.checkTypes.old(argList=argList,
                                      typeCatalog=typeCatalog,
                                      inputTypes=inputTypes,
                                      inspect=inspect)) {
                     return(NULL);
                 }
-                return(gate.execute.iter(inputList=argList,
+                return(gate.execute.old.iter(inputList=argList,
                                          gate=newGate,
                                          tickMax=4,
                                          inspect=inspect,
@@ -1749,7 +2113,7 @@ gate <- function(gateName,
     } else {
         ## This is a composite definition.  We need to find the 'this' data
         newGate[["execute"]] <- function(valueList, inspect=FALSE, prefix="") {
-            return(gate.execute(valueList, newGate,
+            return(gate.execute.old(valueList, newGate,
                                 inspect=inspect, prefix=prefix))
         }
     }
@@ -1757,7 +2121,7 @@ gate <- function(gateName,
     return(newGate);
 }
 
-print.gate <- function(g, prefix="") {
+print.gatey <- function(g, prefix="") {
 
     cat(prefix, "type:", g$type, "\n");
     cat(prefix, "node ID:", g$id, "\n");
@@ -2063,12 +2427,12 @@ test.ORfun <- function(inlist, outlist) {
     for (l in inlist) out <- out || (l == "1");
     return(list(out=(if (out) "1" else "0")));
 }
-test.ORgate <- gate("OR", list(in1="binary",in2="binary"), test.ORfun);
-test.ANDgate <- gate("AND", list(in1="binary",in2="binary"), test.ANDfun);
+test.ORgate <- gatey("OR", list(in1="binary",in2="binary"), test.ORfun);
+test.ANDgate <- gatey("AND", list(in1="binary",in2="binary"), test.ANDfun);
 test.glist <- list(AND1=test.ANDgate, AND2=test.ANDgate, OR3=test.ORgate);
 test.olist <- c("out");
 
-test.COMPgate <- gate("C1", input=test.intlist[1:3],
+test.COMPgate <- gatey("C1", input=test.intlist[1:3],
                       conn=test.clist,
                       definition=test.glist,
                       out=test.olist)
@@ -2081,7 +2445,7 @@ test.clist2 <- append.connectionList(test.clist2, "C1:out","OR1:in1");
 test.clist2 <- append.connectionList(test.clist2, "AND1:out","OR1:in2");
 test.clist2 <- append.connectionList(test.clist2, "OR1:out","out");
 
-test.COMP2gate <- gate("C2", input=test.intlist[1:3],
+test.COMP2gate <- gatey("C2", input=test.intlist[1:3],
                        conn=test.clist2,
                        definition=test.glist2,
                        out=test.olist)
@@ -2100,7 +2464,7 @@ test.clist3 <- append.connectionList(test.clist3, "OR5:out", "AND2:in2")
 test.clist3 <- append.connectionList(test.clist3, "AND2:out", "AND3:in2")
 test.clist3 <- append.connectionList(test.clist3, "AND3:out", "out1")
 
-test.COMP3gate <- gate("C3", input=test.intlist[1:5],
+test.COMP3gate <- gatey("C3", input=test.intlist[1:5],
                        conn=test.clist3,
                        definition=test.glist3,
                        out=c("out1"));
