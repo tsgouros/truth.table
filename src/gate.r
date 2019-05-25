@@ -1,10 +1,38 @@
 ## A system for simulating an arbitrary arrangement of arbitrary 'gate'
 ## functions that accept inputs and produce outputs.
 
+## TO DO list
+##
+##  - A function to abstract a truth table from an arbitrary gate object.
+##    This would require going through all the possible input combinations
+##    some set number of times to estimate the probabilities of the
+##    different outputs.
+##
+##  - Better control of the graphics? Don't really understand how they work
+##    at this point.
+##
+##  - Some more testing of different gate geometries.  I think the export
+##    works and gets all the connections right, but do I really know?  Not
+##    so much.
+##
+##  This is all in service of experimenting with geometries that might
+##  require more or less error correction.  The point of doing this with a
+##  graph-theoretic analysis thingy is that there might be some kind of
+##  graph-theoretic approach to the problem of determining when a transform
+##  or an input is unimportant enough not to require much in the way of
+##  error checking.
+##
+##  4/18/19 ts
+
+library(plyr)
+library(DiagrammeR)
+
+
 ## Some generic functions that will be used by our objects.
 
-## This is for testing.  It controls whether the test variables are deleted
-## before this script ends.
+## This is for testing.  There are tests embedded in this file, and this
+## variable controls whether the test variables are deleted before this
+## script ends.
 deleteTestVariables <- FALSE;
 
 ## A 'format' function to be just a print function that works well with
@@ -49,6 +77,28 @@ setGeneric(name="is.empty",
                standardGeneric("is.empty");
            });
 
+setGeneric(name="showCount",
+           def=function(object) {
+               standardGeneric("showCount");
+           });
+
+setGeneric(name="probs",
+           def=function(object, ...) {
+               standardGeneric("probs");
+           });
+
+setGeneric("info",
+           def=function(object, ...) {
+               standardGeneric("info");
+           });
+
+setGeneric(name="record",
+           def=function(object, inVal, inspect=FALSE) {
+               standardGeneric("record");
+           });
+
+############################################################################
+## TYPES
 ## We begin by establishing a system of 'types' with which to characterize
 ## the inputs and outputs of the gates.  There are 'symbol' types, which can
 ## assume one of several possible values, 'integer' types that can assume
@@ -129,6 +179,8 @@ if (formatVal(binary) != "symbol: 0/1") stop("binary no good");
 if (formatVal(integer) != "integer: min: 0, max: 100") stop("integer oops");
 if (formatVal(float) != "float: min: 0, max: 1") stop("float bad");
 
+############################################################################
+## TYPE LIST
 ## Now we define a class that is just a list of types.  This is not a
 ## terribly useful class, mostly exists only so that we can use the validity
 ## check to assess whether such a list is valid.
@@ -221,6 +273,10 @@ if (formatVal(tl[["integer"]]) != "integer: min: 0, max: 100")
     stop("typeList problem with subsetting");
 if (deleteTestVariables) rm(tl);
 
+
+############################################################################
+## CONNECTIONS
+##
 ## We define connections among the gates with a cnxnList of cnxnElements
 ## specifying a set of "sinks" for each "source".  Connections can be
 ## one-source-to-one-sink or one-source-to-many-sinks, but not
@@ -332,7 +388,9 @@ if (formatVal(ce3) != "C3:in2(6), C4:in1(7)") stop("ce3 problem");
 
 if (deleteTestVariables) rm(ce, ce2, ce3);
 
-
+############################################################################
+## CONNECTION LISTS
+##
 ## A cnxnList is a list of connections between sources and sinks.  The input
 ## specifications look like this: "<gate>:<name>" where <gate> is the name of
 ## a gate in the gate list and <name> is one of the inputs or outputs
@@ -467,9 +525,13 @@ if (formatVal(cl2) != "in1 --> C1:in1(1), C2:in2(2), C3:in3(3)\nin2 --> C1:in2(4
 
 if (deleteTestVariables) rm(cl, cl2);
 
-
-
-## A value and a type, linked.
+############################################################################
+## VALUES, LINKED WITH TYPES
+##
+## A gval is a container that links a value and a type.  It provides its own
+## checking facility for assignments.  Also note that a gval can have a type
+## bu t remain empty, with a value of "" or NaN, depending on whether it's
+## secretly a character or numeric data value.
 gval <- setClass(
     "gval",
     slots=c(numVal="numeric", symVal="character", type="type"),
@@ -526,13 +588,23 @@ setMethod("initialize",
                           .Object@type <- args[["type"]];
                           .Object@numVal <- args[["value"]];
                       } else {
-                          ## This is (we hope) a type with no value, so will
-                          ## get a value of NaN or "".
-                          .Object@type <- args[["type"]];
-                          if (.Object@type@baseType == "symbol") {
-                              .Object@symVal <- "";
+                          if (length(args) == 1) {
+                              ## This is (we hope) a type with no value, so
+                              ## will get a value of NaN or "".
+                              .Object@type <- args[["type"]];
+                              if (.Object@type@baseType == "symbol") {
+                                  .Object@symVal <- "";
+                              } else {
+                                  .Object@numVal <- NaN;
+                              }
                           } else {
-                              .Object@numVal <- NaN;
+                              ## gval("0", type=binary)
+                              .Object@type <- args[["type"]];
+                              if (.Object@type@baseType == "symbol") {
+                                  .Object@symVal <- args[[1]];
+                              } else {
+                                  .Object@numVal <- args[[1]];
+                              }
                           }
                       }
                   }
@@ -618,9 +690,15 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
+setMethod("check",
+          signature="gval",
+          definition=function(object, testVal) {
+              return(check(object@type, testVal));
+          });
+
 ## Testing gval
 
-gv <- gval("0", binary);
+gv <- gval("0", type=binary);
 if (formatVal(gv) != "0 (symbol: 0/1)") stop("gv problem");
 gv <- gval(0.5, float);
 if (formatVal(gv) != "0.5 (float: min: 0, max: 1)")
@@ -655,17 +733,10 @@ if (!is.empty(gval(type=binary))) stop("empty gval reads as full.");
 if (deleteTestVariables) rm(gv);
 
 
-
 ############################################################################
-## Change this to use the gval object that is a value and a type.  Then
-## gateIO is simply two lists of gval objects instead of being an input and
-## associated inputTypes object.
-############################################################################
-
-
-
-
-##   gateIO (holds inputs and outputs of a gate)
+## INPUTS AND OUTPUTS
+##
+## A gateIO object holds a set of inputs and outputs for some gate.
 gateIO <- setClass(
     "gateIO",
     slots=c(inputs="list", outputs="list"),
@@ -916,7 +987,16 @@ setMethod("names",
           signature="gateIO",
           definition=function(x) { return(c(names(x@inputs),
                                             names(x@outputs))); });
+setMethod("[[",
+          signature="gateIO",
+          definition=function(x, i, j, ...) {
 
+              if (class(i) != "character")
+                  stop("Use a name to select a gateIO object.");
+
+              if (i %in% names(x@inputs)) return(x@inputs[[i]]);
+              if (i %in% names(x@outputs)) return(x@outputs[[i]]);
+          });
 
 ## Testing gateIO
 ##gio <- gateIO(inp=list("in1"="0", "in2"="1"),out=list("out"));
@@ -948,12 +1028,17 @@ if (getVal(gio, "out2") != 4) stop("tenth gio problem");
 if (is.empty(gio)) stop("gio is not empty.");
 if (!is.empty(gateIO())) stop("empty gateIO is not full.");
 
+if (getVal(gio[["in1"]]) != 5) stop("gio subsetting problem.");
+
 if (deleteTestVariables) rm(gio);
 
-
-
-## A gateIOList records the inputs and outputs of a gate, as well as its
-## status quo.
+############################################################################
+## COLLECTIONS OF INPUTS AND OUTPUTS
+##
+## A gateIOList records the inputs and outputs of several gates.  We use it
+## to record the 'state' of some gate.  The class contains some facilities
+## for subsetting the list, according to the hierarchy of names that we are
+## using.
 gateIOList <- setClass(
     "gateIOList",
     slots = c(data="list"),
@@ -1037,7 +1122,7 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
-## The things to make a gateIOList act more like a list.
+## Things to make a gateIOList act more like a list.
 
 ## You can do gl[[1]] or gl[["AND2"]] or gl[["^C1"]] in which case we invoke
 ## the subset() method.
@@ -1281,7 +1366,9 @@ if (formatVal(glsSub) != "this:\n I: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\n\
 if (deleteTestVariables) rm(gls, glsSub, glsSubA);
 
 
-
+############################################################################
+## AN ABSTRACTION OF A GATE
+##
 ## A 'gate' object embodies a transformation of a set of inputs to a set of
 ## outputs.  The object can represent a simple, 'atomic' transformation, or
 ## it can represent a 'compound' transformation, an agglomeration of a set of
@@ -1305,8 +1392,8 @@ if (deleteTestVariables) rm(gls, glsSub, glsSubA);
 ##
 ## A compound gate must have not only a list of the gates that compose it,
 ## but also a list of the connections between those gates.
-
-
+##
+##
 ## The idea is that we want to assert a time base for everything equally, so
 ## that we can 'tick' the gates together, but we also want a hierarchical
 ## arrangement of gates, so we can define functional groups of gates as a
@@ -1316,7 +1403,7 @@ if (deleteTestVariables) rm(gls, glsSub, glsSubA);
 ## This means that a transformation might have a contingent nature, returning
 ## not a value, but a state of all the inputs to each of its operations, that
 ## can be absorbed into the state of the parent.  So our record of the state
-## (the 'value list') has to be hierarchical.  We do
+## (the 'state list') has to be hierarchical.  We do
 ## that by creating a hierarchy of the names of the inputs and outputs.  So
 ## the root list might begin with a list of three inputs, but those get
 ## mapped to the various inputs to this or that gate, and "in1" is translated
@@ -1328,18 +1415,6 @@ if (deleteTestVariables) rm(gls, glsSub, glsSubA);
 ## they are prefixed with "AND1".  So:
 ##
 ##  "AND1:in1" -> "in1" -> execute AND1 gate -> "out" -> "AND1:out"
-
-
-## This function accepts a list of inputs and a gate.  It copies the items in
-## the input list to wherever the gate's connection list dictates, then
-## executes all the components of the gate that have a complete set of
-## inputs.
-##
-## The input is a gateIO object or a list of gateIO objects with one of
-## them identified as 'this'.  The output is exactly the same thing, with
-## values added and updated as necessary, so that this function can be run
-## multiple times to 'tick' the values through the gate.  See
-## gate.execute.old.iter, below.
 
 gateIDCounter <- 0;
 gate <- setClass(
@@ -1390,8 +1465,7 @@ gate <- setClass(
         return(TRUE);
     });
 
-## Make a little recursive function to generate a statelist.
-
+## See the tests below for examples of how to initialize your gate.
 setMethod("initialize",
           signature = "gate",
           definition = function(.Object, ...) {
@@ -1507,7 +1581,7 @@ setMethod("initialize",
                       tick <- 0;
                       while (is.empty(.Object@stateList[["this"]], "output")) {
                           tick <- tick + 1;
-                          cat("iteration:", tick, "\n");
+                          if (inspect) cat("iteration:", tick, "\n");
                           .Object@stateList <-
                               .Object@transformOnce(.Object@stateList,
                                                     inspect=inspect,
@@ -1733,41 +1807,624 @@ if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "in2"=gval("1"), "o
 if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
     stop("second gate problem.");
 
-if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval("1",type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
+if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
     stop("third gate problem.");
 
 
 if (deleteTestVariables) rm(g.xor, g.and, g.or, g.comp);
 
+############################################################################
+## PROBABILISTIC RESULTS
+##
+## Now we turn to representing a gate as a truth table, an array of potential
+## inputs, and a set of outputs and probabilities associated with those
+## outputs.
+##
+## A discrete output can be represented as a collection of potential values,
+## and associated probabilities for each one.  But a continuous output must
+## have a set of ranges, and probabilities for them.  This is addressed by
+## having N probabilities for N discrete symbols and N+1 probabilities for N
+## continuous values.
+##
+## The "probabilities" here are just counts.  When we go to print them out,
+## the probabilities can be readily calculated, and there are methods for
+## incrementing the counts.
+outcome <- setClass(
+    "outcome",
+    slots=c(keyVal="gval",
+            vals="list",
+            counts="numeric",
+            Nbins="numeric",
+            type="character"),
+    validity=function(object) {
+        if (class(object@keyVal) != "gval")
+            return("keyVal must be a gval.");
+
+        if (length(object@vals) <= 0)
+            return("Error in determining vals.");
+
+        if (length(object@counts) <= 0)
+            return("Something amiss with the counts.");
+
+        return(TRUE);
+    });
+
+## Use like this: outcome(gval(type="binary")) or
+##                outcome(gval(type="float"),Nbins=5)
+## You can preset the counts with this:
+##                outcome(gval(type="float"),Nbins=3, counts=c(2,3,4))
+setMethod("initialize",
+          signature="outcome",
+          definition=function(.Object, ...) {
+              args <- list(...);
+
+              .Object@keyVal <- args[[1]];
+
+              if (.Object@keyVal@type@baseType == "symbol") {
+                  .Object@type <- "discrete";
+              } else {
+                  .Object@type <- "continuous";
+              }
+
+              if (.Object@type == "discrete") {
+                  .Object@vals <- as.list(.Object@keyVal@type@range);
+                  .Object@counts <- rep(0, length(.Object@vals));
+                  .Object@Nbins <- length(.Object@vals);
+              } else {
+                  Nbins <- grepl("^N", names(args));
+                  if (sum(Nbins) == 1) {
+                      .Object@Nbins <- args[[which(Nbins)]];
+                  } else {
+                      .Object@Nbins <- 4; # Default value.
+                  }
+                  .Object@vals <- as.list(seq(.Object@keyVal@type@min,
+                                              .Object@keyVal@type@max,
+                                              length.out=(.Object@Nbins + 1)));
+                  .Object@counts <- rep(0, .Object@Nbins);
+              }
+
+              ## Optionally we can seed the starting probability counts.
+              counts <- grepl("^c", names(args));
+              if (sum(counts) == 1) {
+                  probIndex <- which(counts);
+
+                  if (class(args[[probIndex]]) != "numeric")
+                      stop("probability inputs must be numeric.");
+
+                  .Object@counts <- args[[probIndex]];
+              }
+
+              validObject(.Object);
+              return(.Object);
+          });
+
+## formatVal(outcome, prefix="", count=FALSE).  Set count to TRUE to see
+## counts instead of probabilities.
+setMethod("formatVal",
+          signature="outcome",
+          definition=function(object, ...) {
+              args <- list(...);
+
+              prefix <- "";
+              if ("prefix" %in% names(args)) {
+                  prefix <- args$prefix;
+              }
+
+              count <- FALSE;
+              if ("count" %in% names(args)) {
+                  count <- args$count;
+              }
+
+              outstr <- "";
+              if (object@type == "discrete") {
+                  for (i in 1:length(object@vals)) {
+                      if (count) {
+                          P <- object@counts[i];
+                      } else {
+                          if (count) {
+                              P <- object@counts[i];
+                          } else {
+                              P <- format(probs(object)[i], digits=4);
+                          }
+                      }
+                      outstr <- paste0(outstr, object@vals[[i]],
+                                       " (", P, ") ",
+                                       collapse="");
+                  }
+              } else {
+                  outstr <- paste0(outstr, "[", collapse="");
+                  for (i in 1:length(object@counts)) {
+                      if (count) {
+                          P <- object@counts[i];
+                      } else {
+                          if (count) {
+                              P <- object@counts[i];
+                          } else {
+                              P <- format(probs(object)[i], digits=4);
+                          }
+                      }
+                      outstr <- paste0(outstr,
+                                       object@vals[[i]],
+                                       " (", P, ") ",
+                                       collapse="");
+                  }
+                  outstr <- paste0(outstr,
+                                   object@vals[[length(object@vals)]],
+                                   "]",
+                                   collapse="");
+              }
+              return(outstr);
+          });
+
+setMethod("show",
+          signature="outcome",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
+
+setMethod("showCount",
+          signature="outcome",
+          definition=function(object) {
+              cat(formatVal(object, count=TRUE), "\n");
+          });
+
+setMethod("probs",
+          signature="outcome",
+          definition=function(object, ...) {
+              if (sum(object@counts) == 0) {
+                  return(rep(0, length(object@counts)));
+              } else {
+                  return(object@counts/sum(object@counts));
+              }
+          });
+
+setMethod("info",
+          signature="outcome",
+          definition=function(object, ...) {
+              xlogx <- function(x) {
+                  if (x == 0)
+                      return(0)
+                  else
+                      return(x * log(x, base=2));
+              }
+
+              return(-sum(sapply(probs(object), xlogx)));
+          });
+
+
+setMethod("record",
+          signature="outcome",
+          definition=function(object, inVal, inspect=FALSE) {
+              if (class(inVal) == "gval") {
+                  if (inVal@type@baseType != object@keyVal@type@baseType) {
+                      stop("Bad type of input.");
+                  }
+                  val <- getVal(inVal);
+              } else {
+                  if (!check(object@keyVal, inVal)) {
+                      stop("Input bad type or out of range.");
+                  }
+                  val <- inVal;
+              }
+
+              if (object@type == "discrete") {
+
+                  i <- which(val == object@vals)
+                  object@counts[i] <- object@counts[i] + 1;
+
+              } else {
+                  i <- object@Nbins;
+                  while (val < object@vals[[i]]) i <- i - 1;
+                  object@counts[i] <- object@counts[i] + 1;
+              }
+              validObject(object);
+              return(object);
+          })
+
+
+
+## Testing outcome
+
+## Preliminary outcome tests
+ocf <- outcome(gval(type=float),count=c(10,10,5,5))
+if (formatVal(ocf) != "[0 (0.3333) 0.25 (0.3333) 0.5 (0.1667) 0.75 (0.1667) 1]")
+    stop("continuous outcome problem.");
+oc <- outcome(gval(type=binary),count=c(10,15))
+if (formatVal(oc) != "0 (0.4) 1 (0.6) ")
+    stop("discrete outcome problem.");
+if (formatVal(record(oc, "0")) != "0 (0.4231) 1 (0.5769) ")
+    stop("record outcome problem.");
+
+if (deleteTestVariables) rm(oc, ocf);
+
+############################################################################
+## INPUTS AND PROBABILISTIC RESULTS
+##
+## A version of gateIO, but that records probabilistic outcomes rather than
+## just the type and value.
+gateProbs <- setClass(
+    "gateProbs",
+    slots=c(inputs="list", outcomes="list", is.compat="function"),
+    validity=function(object) {
+        if (class(object@inputs) != "list")
+            return("inputs must be a list of gvals.");
+        if (sum(sapply(object@inputs, function(x) {class(x) == "gval"})) !=
+            length(object@inputs))
+            return("All elements of inputs must be gvals.");
+
+        if (class(object@outcomes) != "list")
+            return("outcome must be a list.");
+        if (sum(sapply(object@outcomes, function(x) {class(x) == "outcome"})) !=
+            length(object@outcomes))
+            return("All elements of outcomes must be outcome.");
+        return(TRUE);
+    });
+
+setMethod("initialize",
+          signature="gateProbs",
+          definition=function(.Object, ...) {
+              args <- list(...);
+              input <- grepl("^i", names(args));
+              if (sum(input) == 1) { ## There's one arg that starts with 'i'.
+                  inputIndex <- which(input);
+                  if (length(inputIndex) > 1) {
+                      stop("Ambiguous argument to constructor.");
+                  }
+
+                  ## A modest amount of type checking, though more is done
+                  ## in the validity tester.
+                  if (class(args[[inputIndex]]) != "list")
+                      stop("gateProbs inputs must be a list.");
+                  if (class(args[[inputIndex]][[1]]) != "gval")
+                      stop("gateProbs inputs must be a list of gvals.");
+
+                  .Object@inputs <- args[[inputIndex]];
+              } else if (sum(input) > 1) {
+                  stop("gateIO objects forbid multiple input lists.");
+              }
+
+              outcomes <- grepl("^o", names(args));
+              if (sum(outcomes) == 1) { ## There's one arg that starts with 'o'.
+                  outcomeIndex <- which(outcomes)
+                  if (length(outcomeIndex) > 1) {
+                      stop("Ambiguous argument to constructor.");
+                  }
+
+                  if (class(args[[outcomeIndex]]) != "list")
+                      stop("gateProbs outcomes must be a list.");
+                  if (class(args[[outcomeIndex]][[1]]) != "outcome")
+                      stop("gateProbs outcomes must be a list of outcome.");
+
+                  .Object@outcomes <- args[[outcomeIndex]];
+              } else if (sum(outcomes) > 1) {
+                  stop("gateProbs object forbids multiple outcome object.");
+              }
+
+              .Object@is.compat <- function(inVal, inspect=FALSE) {
+                  if (class(inVal) != "gateIO") {
+                      if (inspect) cat("input must be a gateIO object.\n");
+                      return(FALSE);
+                  }
+
+                  if (!identical(names(.Object), names(inVal))) {
+                      if (inspect)
+                          cat("The object to be recorded is not congruent.\n");
+                      return(FALSE);
+                  }
+
+                  for (name in names(inVal@inputs)) {
+                      if (!(name %in% names(.Object))) {
+                          if (inspect)
+                              cat("Name mismatch between args.\n");
+                          return(FALSE);
+                      }
+
+                      if (!identical(inVal[[name]]@type, .Object[[name]]@type)){
+                          if (inspect)
+                              cat("Type mismatch between args.\n");
+                          return(FALSE);
+                      }
+
+                      if (!(getVal(inVal[[name]]) == getVal(.Object[[name]]))) {
+                          if (inspect)
+                              cat("Value mismatch in inputs.\n");
+                          return(FALSE);
+                      }
+                  }
+                  return(TRUE);
+              };
+
+
+              validObject(.Object);
+              return(.Object);
+          });
+
+setMethod("formatVal",
+          signature="gateProbs",
+          definition=function(object, ...) {
+              args <- list(...);
+              prefix <- "";
+              if ("prefix" %in% names(args)) {
+                  prefix <- args$prefix;
+              }
+
+              outstr <- "";
+              out <- c();
+              if (length(object@inputs) > 0) {
+                  for (i in 1:length(object@inputs)) {
+                      out <- c(out, paste(names(object@inputs)[i], "=",
+                                          formatVal(object@inputs[[i]]),
+                                          sep=""));
+                  }
+                  outstr <- paste(prefix, "I: ",
+                                  paste(out, collapse=", "), sep="");
+              }
+
+              if (outstr != "") outstr <- paste(outstr, "\n", sep="");
+
+              out <- c();
+              if (length(object@outcomes) > 0) {
+                  for (i in 1:length(object@outcomes)) {
+                      out <- c(out, paste(names(object@outcomes)[i], "=",
+                                          formatVal(object@outcomes[[i]]),
+                                          sep=""));
+                  }
+                  outstr <- paste(outstr, prefix, "O: ",
+                                  paste(out, collapse=", "), sep="");
+              }
+
+              return(outstr);
+          });
+
+setMethod("show",
+          signature="gateProbs",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
+
+setMethod("names",
+          signature="gateProbs",
+          definition=function(x) { return(c(names(x@inputs),
+                                            names(x@outcomes))); });
+setMethod("[[",
+          signature="gateProbs",
+          definition=function(x, i, j, ...) {
+
+              if (class(i) != "character")
+                  stop("Use a name to select a gateProbs object.");
+
+              if (i %in% names(x@inputs)) return(x@inputs[[i]]);
+              if (i %in% names(x@outcomes)) return(x@outcomes[[i]]);
+          });
+
+## Records a gateIO value in a gateProbs object.  Makes sure they match.
+setMethod("record",
+          signature="gateProbs",
+          definition=function(object, inVal, inspect=FALSE) {
+
+              if (object@is.compat(inVal, inspect=inspect)) {
+                  for (outName in names(inVal@outputs)) {
+                      object@outcomes[[outName]] <-
+                          record(object@outcomes[[outName]],
+                                 getVal(inVal[[outName]]));
+                  }
+              }
+
+              validObject(object);
+              return(object);
+          });
+
+
+## Testing gateProbs
+gp <- gateProbs(i=list("in1"=gval("0"),"in2"=gval("1")),
+                o=list("out"=outcome(gval(type=binary),c=c(15,10))))
+if (formatVal(gp) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.6) 1 (0.4) ")
+     stop("gp problem.");
+
+if (formatVal(record(gp, gateIO(i=list("in1"=gval("0"),"in2"=gval("1")),o=list("out"=gval("1",type=binary))))) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.5769) 1 (0.4231) ")
+    stop("gp record problem.");
+
+gpf <- gateProbs(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                 o=list("out"=outcome(gval(type=float),c=c(10,10,5,5))))
+if (formatVal(gpf) != "I: in1=0.2 (float: min: 0, max: 1), in2=0.7 (float: min: 0, max: 1)\nO: out=[0 (0.3333) 0.25 (0.3333) 0.5 (0.1667) 0.75 (0.1667) 1]")
+    stop("gp float problem");
+
+if (deleteTestVariables) rm(gp, gpf);
+
+############################################################################
+## TRUTH TABLE
+##
+## An object to hold a truth table, with a column for each input and columns
+## of outcome objects to record the probabilities of different outcomes.  We
+## use a vector of gateProbs objects as input to record the trials.  Each
+## gateProbs object in the input vector should have the same array of data
+## values and names.
+
+## ||||||||| This should not contain data frame, but imitate one, and have a
+## data frame export capacity.  It should be a list of gateProbs objects,
+## with compatible inputs and outcomes.  Needs an add function that will
+## either accept and add an input-incompatible new gateProbs to the list, or
+## a gateIO object that is compatible with some gateProbs in the list.
+
+truthTable <- setClass(
+    "truthTable",
+    slots=c(data="data.frame"),
+    validity=function(object) {
+        if (class(object@data) != "data.frame")
+            return("truthTable must be a data frame.");
+        return(TRUE);
+    });
+
+
+## Use like this: truthTable(trials=c(gateProbs.1,gateProbs.2,gateProbs.3))
+setMethod("initialize",
+          signature="truthTable",
+          definition=function(.Object, ...) {
+              args <- list(...);
+
+              if ("trials" %in% names(args)) {
+                  trials <- args[["trials"]];
+              } else {
+                  trials <- args[[1]];
+              }
+
+              summary <- TRUE;
+              if ("summary" %in% names(args)) {
+                  summary <- args[["summary"]];
+              }
+
+              ## Establish the first row of the data frame.
+              row <- list();
+              for (name in names(trials[[1]])) {
+                      row[[name]] <- getVal(trials[[1]][[name]]);
+              }
+              .Object@data <- data.frame(row);
+
+              ## Append the rest of the rows.
+              if (length(trials) > 1) {
+                  for (i in 2:length(trials)) {
+                      row <- list();
+                      for (name in names(trials[[i]])) {
+                          row[[name]] <- getVal(trials[[i]][[name]]);
+                      }
+                      .Object@data <- rbind(.Object@data,
+                                            data.frame(row));
+                  }
+              }
+
+              validObject(.Object);
+              return(.Object);
+          });
+
+
+setMethod("formatVal",
+          signature="truthTable",
+          definition=function(object, ...) {
+              args <- list(...);
+
+              prefix <- "";
+              if ("prefix" %in% names(args)) {
+                  prefix <- args$prefix;
+              }
+
+              outstr <- "";
+              for (i in 1:length(object@data)) {
+                  outstr <- paste0(outstr, formatVal(object@data[[i]]),
+                                   "\n", sep="");
+              }
+
+              return(outstr);
+          });
+
+setMethod("show",
+          signature="truthTable",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
 
 
 
 
-## TO DO list
-##
-##  - A function to abstract a truth table from an arbitrary gate object.
-##    This would require going through all the possible input combinations
-##    some set number of times to estimate the probabilities of the
-##    different outputs.
-##
-##  - Better control of the graphics? Don't really understand how they work
-##    at this point.
-##
-##  - Some more testing of different gate geometries.  I think the export
-##    works and gets all the connections right, but do I really know?  Not
-##    so much.
-##
-##  This is all in service of experimenting with geometries that might
-##  require more or less error correction.  The point of doing this with a
-##  graph-theoretic analysis thingy is that there might be some kind of
-##  graph-theoretic approach to the problem of determining when a transform
-##  or an input is unimportant enough not to require much in the way of
-##  error checking.
-##
-##  4/18/19 ts
 
-library(plyr)
-library(DiagrammeR)
+## You can do gl[[1]] or gl[["AND2"]] or gl[["^C1"]] in which case we invoke
+## the subset() method.
+setMethod("[[",
+          signature="truthTable",
+          definition=function(x, i, j, ...) { return(x@data[[i]]); });
+
+setMethod("[[<-",
+          signature="truthTable",
+          definition=function(x, i, j, ..., value) {
+
+              if (class(value) == "gateProbs") {
+                  x@data[[i]] <- value;
+              } else {
+                  cat("value must be a gateProbs object.\n");
+                  stop();
+              }
+              return(x);
+          });
+
+setMethod("length",
+          signature="truthTable",
+          definition=function(x) { return(length(x@data)); });
+
+
+
+
+
+## Create a data frame of nodes suitable for use with DiagrammeR graphs.  The
+## recurse flag indicates whether component gates are expanded into their
+## components, or treated as a single node.
+##
+nodeIDCounter <- 0;
+gate.makeNodeList <- function(g, recurse=FALSE, prefix="") {
+
+    out.nodeList <- data.frame(stringsAsFactors=FALSE);
+
+    ## if prefix is nothing, then we are at the top level, and the 'this'
+    ## nodes should be drawn independently.  Otherwise they are not separate.
+
+    if (prefix == "") {
+        for (inName in names(g@io@inputs)) {
+
+            nodeIDCounter <<- nodeIDCounter + 1;
+            assign("nodeIDCounter", nodeIDCounter, envir=.GlobalEnv);
+
+            out.nodeList <- rbind(out.nodeList,
+                                  data.frame(label=inName,
+                                             id=nodeIDCounter,
+                                             gid=g@id,
+                                             type="input",
+                                             stringsAsFactors=FALSE));
+        }
+        for (outName in names(g@io@outputs)) {
+
+            nodeIDCounter <<- nodeIDCounter + 1;
+            assign("nodeIDCounter", nodeIDCounter, envir=.GlobalEnv);
+
+            out.nodeList <- rbind(out.nodeList,
+                                  data.frame(label=outName,
+                                             id=nodeIDCounter,
+                                             gid=g@id,
+                                             type="output",
+                                             stringsAsFactors=FALSE));
+        }
+    }
+
+    if (length(g@gateList) > 0) {
+        for (gName in names(g@gateList)) {
+
+            nodeIDCounter <<- nodeIDCounter + 1;
+            assign("nodeIDCounter", nodeIDCounter, envir=.GlobalEnv);
+
+            if (prefix == "") {
+                nodeName <- gName;
+            } else {
+                nodeName <- paste(prefix, gName, sep=".");
+            }
+
+            if ((g@gateList[[gName]]@type == "atomic") ||
+                ((g@gateList[[gName]]@type == "compound") && (!recurse))) {
+                out.nodeList <- rbind(out.nodeList,
+                                      data.frame(label=nodeName,
+                                                 id=nodeIDCounter,
+                                                 gid=g@id,
+                                                 type="gate",
+                                                 stringsAsFactors=FALSE));
+            } else {
+                ## Recurse down into a subsidiary compound gate
+                out.nodeList <- rbind(out.nodeList,
+                                      gate.makeNodeList(g@gateList[[gName]],
+                                                        prefix=nodeName,
+                                                        recurse=recurse));
+            }
+        }
+    }
+
+    return(out.nodeList);
+}
+
 
 
 
@@ -2022,87 +2679,3 @@ gate.simplify.edgeList <- function(edges, nodes) {
 }
 
 
-
-## TBD:
-## Should add color and shape info to node and edge lists.
-## (Also add color to edge defs.)
-
-
-
-test.inlist <- list(in1="0",in2="1", in3="1");
-test.intlist <- list(in1="binary", in2="binary", in3="binary",
-                     in4="binary", in5="binary", in6="binary");
-
-test.clist <- connectionList("in1","AND:in1");
-test.clist <- append.connectionList(test.clist, "in1", "AND1:in1");
-test.clist <- append.connectionList(test.clist, "in2", "AND1:in2,AND2:in1");
-test.clist <- append.connectionList(test.clist, "in3", "AND2:in2");
-test.clist <- append.connectionList(test.clist, "AND1:out", "OR3:in1");
-test.clist <- append.connectionList(test.clist, "AND2:out", "OR3:in2");
-test.clist <- append.connectionList(test.clist, "OR3:out", "out");
-
-test.ANDfun <- function(inlist, outlist) {
-    out <- TRUE;
-    for (l in inlist) out <- out && (l == "1");
-    return(list(out=(if (out) "1" else "0")));
-}
-test.ORfun <- function(inlist, outlist) {
-    out <- FALSE;
-    for (l in inlist) out <- out || (l == "1");
-    return(list(out=(if (out) "1" else "0")));
-}
-test.ORgate <- gatey("OR", list(in1="binary",in2="binary"), test.ORfun);
-test.ANDgate <- gatey("AND", list(in1="binary",in2="binary"), test.ANDfun);
-test.glist <- list(AND1=test.ANDgate, AND2=test.ANDgate, OR3=test.ORgate);
-test.olist <- c("out");
-
-test.COMPgate <- gatey("C1", input=test.intlist[1:3],
-                      conn=test.clist,
-                      definition=test.glist,
-                      out=test.olist)
-
-test.glist2 <- list(AND1=test.ANDgate, C1=test.COMPgate, OR1=test.ORgate)
-test.clist2 <- connectionList("in1", "AND1:in1,C1:in1");
-test.clist2 <- append.connectionList(test.clist2, "in2", "AND1:in2,C1:in2");
-test.clist2 <- append.connectionList(test.clist2, "in3","C1:in3");
-test.clist2 <- append.connectionList(test.clist2, "C1:out","OR1:in1");
-test.clist2 <- append.connectionList(test.clist2, "AND1:out","OR1:in2");
-test.clist2 <- append.connectionList(test.clist2, "OR1:out","out");
-
-test.COMP2gate <- gatey("C2", input=test.intlist[1:3],
-                       conn=test.clist2,
-                       definition=test.glist2,
-                       out=test.olist)
-
-test.glist3 <- list(AND1=test.ANDgate, OR4=test.ORgate, OR5=test.ORgate, C2=test.COMP2gate, C1=test.COMPgate, AND2=test.ANDgate, AND3=test.ANDgate);
-test.clist3 <- connectionList("in1", "AND1:in1,C2:in1");
-test.clist3 <- append.connectionList(test.clist3, "in2", "AND1:in2,C2:in2")
-test.clist3 <- append.connectionList(test.clist3, "in3", "OR4:in1,C2:in3")
-test.clist3 <- append.connectionList(test.clist3, "in4", "OR4:in2")
-test.clist3 <- append.connectionList(test.clist3, "OR4:out", "OR5:in1")
-test.clist3 <- append.connectionList(test.clist3, "AND1:out", "AND2:in1,OR5:in2,C1:in1")
-test.clist3 <- append.connectionList(test.clist3, "in5", "C1:in2")
-test.clist3 <- append.connectionList(test.clist3, "C2:out", "C1:in3")
-test.clist3 <- append.connectionList(test.clist3, "C1:out", "AND3:in1")
-test.clist3 <- append.connectionList(test.clist3, "OR5:out", "AND2:in2")
-test.clist3 <- append.connectionList(test.clist3, "AND2:out", "AND3:in2")
-test.clist3 <- append.connectionList(test.clist3, "AND3:out", "out1")
-
-test.COMP3gate <- gatey("C3", input=test.intlist[1:5],
-                       conn=test.clist3,
-                       definition=test.glist3,
-                       out=c("out1"));
-
-
-#test.glist4 <- list(AND1=test.ANDgate, C3=test.COMP3gate
-
-test.ilist <- list(this=gateIOorig(inputs=list("in1"="0","in2"="1")),
-                   "C1"=gateIOorig(inputs=list("i1"="a","i2"="b", "i3"="c"),
-                                outputs=list("out1"="","out2"="")),
-                   "C2"=gateIOorig(inputs=list("in1"="1")),
-                   "C2.C3"=gateIOorig(inputs=list("in1"="f","in2"="g")));
-
-ts <- gateIOorig(inputs=list("in1"="0"))
-ts <- gateIOorig.set(list(this=ts), "in2", "1")
-ts <- gateIOorig.set(ts, "in3", "1")
-ts <- gateIOorig.set(ts, "in4", "0")
