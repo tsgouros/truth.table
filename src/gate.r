@@ -97,6 +97,11 @@ setGeneric(name="record",
                standardGeneric("record");
            });
 
+setGeneric(name="export",
+           def=function(object) {
+               standardGeneric("export");
+           });
+
 ############################################################################
 ## TYPES
 ## We begin by establishing a system of 'types' with which to characterize
@@ -998,8 +1003,32 @@ setMethod("[[",
               if (i %in% names(x@outputs)) return(x@outputs[[i]]);
           });
 
+setMethod("[[<-",
+          signature="gateIO",
+          definition=function(x, i, j, ..., value) {
+              if (class(i) != "character")
+                  stop("Use a name to select a gateIO object.");
+
+              if (i %in% names(x@inputs)) {
+                  if (class(value) == "gval") {
+                      x@inputs[[i]] <- value;
+                  } else {
+                      x@inputs[[i]] <- setVal(x@inputs[[i]], value);
+                  }
+              } else if (i %in% names(x@outputs)) {
+                  if (class(value) == "gval") {
+                      x@outputs[[i]] <- value;
+                  } else {
+                      x@outputs[[i]] <- setVal(x@outputs[[i]], value);
+                  }
+              }
+              return(x);
+          });
+
+
+
 ## Testing gateIO
-##gio <- gateIO(inp=list("in1"="0", "in2"="1"),out=list("out"));
+## gio <- gateIO(inp=list("in1"="0", "in2"="1"),out=list("out"));
 ## gateIO(inp=list("in1"=3),typeInputs=list("in1"=integer)... or
 gio <- gateIO(inp=list("in1"=gval("0",binary), "in2"=gval("1", binary)));
 if (formatVal(gio) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)")
@@ -1850,7 +1879,8 @@ outcome <- setClass(
     });
 
 ## Use like this: outcome(gval(type="binary")) or
-##                outcome(gval(type="float"),Nbins=5)
+##                outcome(gval(type="float"),Nbins=5) or
+##                outcome(float)
 ## You can preset the counts with this:
 ##                outcome(gval(type="float"),Nbins=3, counts=c(2,3,4))
 setMethod("initialize",
@@ -1858,7 +1888,11 @@ setMethod("initialize",
           definition=function(.Object, ...) {
               args <- list(...);
 
-              .Object@keyVal <- args[[1]];
+              if (class(args[[1]]) == "gval") {
+                  .Object@keyVal <- args[[1]];
+              } else if (class(args[[1]]) == "type") {
+                  .Object@keyVal <- gval(type=args[[1]]);
+              }
 
               if (.Object@keyVal@type@baseType == "symbol") {
                   .Object@type <- "discrete";
@@ -2054,16 +2088,65 @@ gateProbs <- setClass(
 
         if (class(object@outcomes) != "list")
             return("outcome must be a list.");
+        if (length(object@outcomes) < 1)
+            return("Need at least one outcome in the gateProbs object.");
         if (sum(sapply(object@outcomes, function(x) {class(x) == "outcome"})) !=
             length(object@outcomes))
             return("All elements of outcomes must be outcome.");
         return(TRUE);
     });
 
+## Use like this: gateProbs(i=list("in1"=gval("0"),"in2"=gval("1")),
+##                          o=list("out"=outcome(gval(type=binary),c=c(15,10))))
+## OR:    gateProbs(template=gateIO, Nbins=4)
 setMethod("initialize",
           signature="gateProbs",
           definition=function(.Object, ...) {
               args <- list(...);
+
+              ## This option uses a 'template' gateIO object to set up the
+              ## inputs to this gateProbs, and the outcome objects, too. It
+              ## does not touch the output values (though see the commented
+              ## out part below).  After setting up the template, use
+              ## 'record' to add values.
+              temp <- grepl("^t", names(args)); # Looking for "template"
+              if (sum(temp) == 1) {
+                  templateIndex <- which(temp);
+                  if (length(templateIndex) > 1) {
+                      stop("Ambiguous argument ('t') to constructor.");
+                  }
+
+                  if (class(args[[templateIndex]]) != "gateIO")
+                      stop("Template arg must be a gateIO object.");
+
+                  Nbins <- 4;
+                  nb <- grepl("^N", names(args)); # Looking for "Nbins"
+                  if (sum(nb) == 1) {
+                      nbindex <- which(nb);
+                      if (length(templateIndex) > 1) {
+                          stop("Ambiguous argument ('Nbins') to constructor.");
+                      }
+
+                      Nbins <- args[[nbindex]];
+                  }
+
+                  .Object@inputs <- args[[templateIndex]]@inputs;
+                  .Object@outcomes <- list();
+                  template <- args[[templateIndex]];
+                  for (outname in names(template@outputs)) {
+                      .Object@outcomes[[outname]] <-
+                          outcome(template@outputs[[outname]]@type,
+                                  Nbins=Nbins);
+                      ## Uncomment this to seed the gateProbs outcomes with
+                      ## the template output values.
+                      ## if (!is.empty(template@outputs[[outname]])) {
+                      ##     .Object@outcomes[[outname]] <-
+                      ##         record(.Object@outcomes[[outname]],
+                      ##                getVal(template@outputs[[outname]]));
+                      ## }
+                  }
+              }
+
               input <- grepl("^i", names(args));
               if (sum(input) == 1) { ## There's one arg that starts with 'i'.
                   inputIndex <- which(input);
@@ -2097,12 +2180,16 @@ setMethod("initialize",
 
                   .Object@outcomes <- args[[outcomeIndex]];
               } else if (sum(outcomes) > 1) {
-                  stop("gateProbs object forbids multiple outcome object.");
+                  stop("gateProbs object forbids multiple outcome lists.");
               }
 
               .Object@is.compat <- function(inVal, inspect=FALSE) {
-                  if (class(inVal) != "gateIO") {
-                      if (inspect) cat("input must be a gateIO object.\n");
+                  if ((class(inVal) != "gateIO") &&
+                      (class(inVal) != "gateProbs")) {
+                      if (inspect) {
+                          cat("input must be a gateIO or gateProbs object,");
+                          cat(" not:", class(inVal), "\n");
+                      }
                       return(FALSE);
                   }
 
@@ -2113,22 +2200,46 @@ setMethod("initialize",
                   }
 
                   for (name in names(inVal@inputs)) {
-                      if (!(name %in% names(.Object))) {
-                          if (inspect)
-                              cat("Name mismatch between args.\n");
-                          return(FALSE);
-                      }
 
                       if (!identical(inVal[[name]]@type, .Object[[name]]@type)){
-                          if (inspect)
-                              cat("Type mismatch between args.\n");
+                          if (inspect) {
+                              cat("Type mismatch between input args.\n");
+                              cat("One:", formatVal(inVal[[name]]@type),
+                                  "The other:", formatVal(.Object[[name]]@type),
+                                  "\n");
+                          }
                           return(FALSE);
                       }
 
                       if (!(getVal(inVal[[name]]) == getVal(.Object[[name]]))) {
                           if (inspect)
-                              cat("Value mismatch in inputs.\n");
+                              cat("Value mismatch in input args.\n");
                           return(FALSE);
+                      }
+                  }
+
+                  if (class(inVal) == "gateIO") {
+                      for (name in names(inVal@outputs)) {
+                          if (!identical(inVal[[name]]@type,
+                                         .Object[[name]]@keyVal@type)){
+                              if (inspect) {
+                                  cat("Type mismatch between output args.\n");
+                              }
+                              return(FALSE);
+                          }
+                      }
+                  } else if (class(inVal) == "gateProbs") {
+                      for (name in names(inVal@outcomes)) {
+                          if (!identical(inVal[[name]]@keyVal@type,
+                                         .Object[[name]]@keyVal@type)){
+                              if (inspect) {
+                                  cat("Type mismatch between output args.\n");
+                                  cat("One:", formatVal(inVal[[name]]@keyVal@type),
+                                  "The other:", formatVal(.Object[[name]]@type),
+                                  "\n");
+                              }
+                              return(FALSE);
+                          }
                       }
                   }
                   return(TRUE);
@@ -2146,6 +2257,11 @@ setMethod("formatVal",
               prefix <- "";
               if ("prefix" %in% names(args)) {
                   prefix <- args$prefix;
+              }
+
+              count <- FALSE;
+              if ("count" %in% names(args)) {
+                  count <- args$count;
               }
 
               outstr <- "";
@@ -2166,7 +2282,8 @@ setMethod("formatVal",
               if (length(object@outcomes) > 0) {
                   for (i in 1:length(object@outcomes)) {
                       out <- c(out, paste(names(object@outcomes)[i], "=",
-                                          formatVal(object@outcomes[[i]]),
+                                          formatVal(object@outcomes[[i]],
+                                                    count=count),
                                           sep=""));
                   }
                   outstr <- paste(outstr, prefix, "O: ",
@@ -2180,6 +2297,12 @@ setMethod("show",
           signature="gateProbs",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          });
+
+setMethod("showCount",
+          signature="gateProbs",
+          definition=function(object) {
+              cat(formatVal(object, count=TRUE), "\n");
           });
 
 setMethod("names",
@@ -2221,7 +2344,8 @@ gp <- gateProbs(i=list("in1"=gval("0"),"in2"=gval("1")),
 if (formatVal(gp) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.6) 1 (0.4) ")
      stop("gp problem.");
 
-if (formatVal(record(gp, gateIO(i=list("in1"=gval("0"),"in2"=gval("1")),o=list("out"=gval("1",type=binary))))) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.5769) 1 (0.4231) ")
+gp <- record(gp, gateIO(i=list("in1"=gval("0"),"in2"=gval("1")),o=list("out"=gval("1",type=binary))));
+if (formatVal(gp) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.5769) 1 (0.4231) ")
     stop("gp record problem.");
 
 gpf <- gateProbs(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
@@ -2229,7 +2353,32 @@ gpf <- gateProbs(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
 if (formatVal(gpf) != "I: in1=0.2 (float: min: 0, max: 1), in2=0.7 (float: min: 0, max: 1)\nO: out=[0 (0.3333) 0.25 (0.3333) 0.5 (0.1667) 0.75 (0.1667) 1]")
     stop("gp float problem");
 
-if (deleteTestVariables) rm(gp, gpf);
+gpt <- gateProbs(t=gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.3, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.5, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.7, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.7, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.7, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.7, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.7, type=float))));
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.2, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.7, type=float))));
+## This one has different input values, so shouldn't count.
+gpt <- record(gpt, gateIO(i=list("in1"=gval(0.1, float),"in2"=gval(0.7, float)),
+                          o=list("out"=gval(0.9, type=float))));
+
+if (formatVal(gpt) != "I: in1=0.2 (float: min: 0, max: 1), in2=0.7 (float: min: 0, max: 1)\nO: out=[0 (0) 0.25 (0.125) 0.5 (0.875) 0.75 (0) 1]")
+    stop("gpt template gateProbs problem.");
+
+if (deleteTestVariables) rm(gp, gpf, gpt);
 
 ############################################################################
 ## TRUTH TABLE
@@ -2239,57 +2388,90 @@ if (deleteTestVariables) rm(gp, gpf);
 ## use a vector of gateProbs objects as input to record the trials.  Each
 ## gateProbs object in the input vector should have the same array of data
 ## values and names.
-
-## ||||||||| This should not contain data frame, but imitate one, and have a
-## data frame export capacity.  It should be a list of gateProbs objects,
-## with compatible inputs and outcomes.  Needs an add function that will
-## either accept and add an input-incompatible new gateProbs to the list, or
-## a gateIO object that is compatible with some gateProbs in the list.
+##
+## This does not contain a data frame, but sort of imitates one, and has a
+## data frame export capacity.  It contains a list of gateProbs objects, with
+## compatible inputs and outcomes, and has an add function that will either
+## accept and add an input-incompatible new gateProbs to the list, or a
+## gateIO object that is compatible with some gateProbs in the list, in which
+## case it adds its output counts to that compatible existing gateProb.
 
 truthTable <- setClass(
     "truthTable",
-    slots=c(data="data.frame"),
+    slots=c(data="list"),
     validity=function(object) {
-        if (class(object@data) != "data.frame")
-            return("truthTable must be a data frame.");
+        if (class(object@data) != "list")
+            return("Object data should be a list.");
+        if (sum(sapply(object@data, function(x) {class(x) == "gateProbs"})) !=
+            length(object@data))
+            return("All elements of data list must be gateProbs.");
         return(TRUE);
     });
 
 
-## Use like this: truthTable(trials=c(gateProbs.1,gateProbs.2,gateProbs.3))
+## Use like this: truthTable(gateProbs.1,gateProbs.2,gateProbs.3)
+##            or: truthTable(gateIO.1,gateIO.2,gateIO.3)
 setMethod("initialize",
           signature="truthTable",
           definition=function(.Object, ...) {
               args <- list(...);
 
-              if ("trials" %in% names(args)) {
-                  trials <- args[["trials"]];
-              } else {
-                  trials <- args[[1]];
-              }
+              ## args must be uniform, either gateIO objects or gateProbs.
+              if (sum(sapply(args, function(x) { class(x) == "gateProbs"})) ==
+                   length(args)) {
 
-              summary <- TRUE;
-              if ("summary" %in% names(args)) {
-                  summary <- args[["summary"]];
-              }
-
-              ## Establish the first row of the data frame.
-              row <- list();
-              for (name in names(trials[[1]])) {
-                      row[[name]] <- getVal(trials[[1]][[name]]);
-              }
-              .Object@data <- data.frame(row);
-
-              ## Append the rest of the rows.
-              if (length(trials) > 1) {
-                  for (i in 2:length(trials)) {
-                      row <- list();
-                      for (name in names(trials[[i]])) {
-                          row[[name]] <- getVal(trials[[i]][[name]]);
+                  ## All gateProbs.  Add these all to the list, but ignore
+                  ## duplicates (input lists identical).
+                  for (newItem in args) {
+                      if (length(.Object@data) < 1) {
+                          .Object@data[[1]] <- newItem;
+                      } else {
+                          comps <- sapply(.Object@data,
+                                          function(x) {newItem@is.compat(x)});
+                          ## If there are no matches, add the object.
+                          if (sum(comps) == 0) {
+                              .Object@data[[length(.Object@data)+1]] <- newItem;
+                          }
                       }
-                      .Object@data <- rbind(.Object@data,
-                                            data.frame(row));
                   }
+              } else if (sum(sapply(args,
+                                    function(x) { class(x) == "gateIO"})) ==
+                         length(args)) {
+                  ## All gateIO.  Add these by creating a compatible
+                  ## gateProbs object for each one.  Record the added
+                  ## objects, too, and if there are repeats, just record
+                  ## them.
+                  Nbins <- 4;
+                  if ("Nbins" %in% names(args)) Nbins <- args[["Nbins"]];
+                  for (newItem in args) {
+                      if (length(.Object@data) < 1) {
+                          .Object@data[[1]] <- gateProbs(template=newItem,
+                                                         Nbins=Nbins);
+                          .Object@data[[1]] <- record(.Object@data[[1]],
+                                                      newItem);
+                      } else {
+                          comps <- sapply(.Object@data,
+                                          function(x) {x@is.compat(newItem)});
+                          if (sum(comps) == 0) {
+                              .Object@data[[length(.Object@data)+1]] <-
+                                  gateProbs(template=newItem,
+                                            Nbins=Nbins);
+                              .Object@data[[length(.Object@data)]] <-
+                                  record(.Object@data[[length(.Object@data)]],
+                                         newItem);
+                          } else if (sum(comps) == 1) {
+                              ## There already is a compatible gateProbs.
+                              ## Record it.
+                              comp <- which(comps);
+                              .Object@data[[comp]] <-
+                                  record(.Object@data[[comp]], newItem);
+                          } else {
+                              stop("Multiple compatible gateProbs, which is bad.");
+                          }
+                      }
+                  }
+              } else {
+                  stop("Arg list must be uniform, either gateIO or gateProbs.");
               }
 
               validObject(.Object);
@@ -2301,16 +2483,24 @@ setMethod("formatVal",
           signature="truthTable",
           definition=function(object, ...) {
               args <- list(...);
-
               prefix <- "";
               if ("prefix" %in% names(args)) {
                   prefix <- args$prefix;
               }
 
+              count <- FALSE;
+              if ("count" %in% names(args)) {
+                  count <- args$count;
+              }
+
               outstr <- "";
-              for (i in 1:length(object@data)) {
-                  outstr <- paste0(outstr, formatVal(object@data[[i]]),
-                                   "\n", sep="");
+              if (length(object@data) > 0) {
+                  for (i in 1:length(object@data)) {
+                      outstr <-
+                          paste0(outstr, "[[", i, "]]\n",
+                                formatVal(object@data[[i]], count=count),
+                                "\n\n", collapse="");
+                  }
               }
 
               return(outstr);
@@ -2322,32 +2512,142 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
+setMethod("showCount",
+          signature="truthTable",
+          definition=function(object) {
+              cat(formatVal(object, count=TRUE), "\n");
+          });
 
 
-
-
-## You can do gl[[1]] or gl[["AND2"]] or gl[["^C1"]] in which case we invoke
-## the subset() method.
 setMethod("[[",
           signature="truthTable",
-          definition=function(x, i, j, ...) { return(x@data[[i]]); });
+          definition=function(x, i, j, ...) {
+              if (class(i) == "gateIO") {
+                  comps <- sapply(x@data, function(y) {y@is.compat(i);})
+                  comp <- which(comps);
+                  if (length(comp) == 1) {
+                      return(x@data[[comp]]);
+                  } else if (length(comp) == 0) {
+                      stop("Incompatible with current list.");
+                  } else {
+                      stop("Too many compatible entries.");
+                  }
+              } else {
+                  return(x@data[[i]]);
+              }
+          });
 
+## You can use this one to record a gateIO object
 setMethod("[[<-",
           signature="truthTable",
           definition=function(x, i, j, ..., value) {
 
-              if (class(value) == "gateProbs") {
-                  x@data[[i]] <- value;
+              if (class(i) == "gateIO") {
+                  comps <- sapply(x@data, function(y) {y@is.compat(i);})
+                  comp <- which(comps);
+                  if (length(comp) > 1) stop("Too many compatible entries.");
               } else {
-                  cat("value must be a gateProbs object.\n");
+                  comp <- i;
+              }
+
+              if (class(value) == "gateProbs") {
+                  x@data[[comp]] <- value;
+              } else if (class(value) == "gateIO") {
+                  x@data[[comp]] <- record(x@data[[comp]], value);
+              } else {
+                  cat("value must be a gateProbs or compatible gateIO object.\n");
                   stop();
               }
               return(x);
           });
 
+## Add either a gateProbs object, or a gateIO.  If the gateIO is not
+## compatible with anyone, create a new gateProbs for it.  If it is, just
+## record it.
+setMethod("add",
+          signature = "truthTable",
+          definition = function(object, ...) {
+              args <- list(...);
+
+              Nbins <- 4;
+              if ("Nbins" %in% names(args)) Nbins <- args[["Nbins"]];
+
+              for (arg in args) {
+                  if (class(arg) == "gateProbs") {
+                      comps <- sapply(object@data,
+                                      function(x) {x@is.compat(arg)});
+                      if (sum(comps) == 0) { # This is new; add it.
+                          object@data[[length(object@data) + 1]] <- arg;
+                      } # Otherwise, ignore it.
+
+                  } else if (class(arg) == "gateIO") {
+
+                      comps <- sapply(object@data,
+                                      function(x) {x@is.compat(arg)});
+                      if (sum(comps) == 0) { # This is new; add it.
+                          object@data[[length(object@data) + 1]] <-
+                              gateProbs(template=arg, Nbins=Nbins);
+                      } else if (sum(comps) == 1) { # This is not new; record.
+                          comp <- which(comps);
+                          object@data[[comp]] <- record(object@data[[comp]],
+                                                        arg);
+                      }
+                  }
+              }
+              return(object);
+          });
+
+
 setMethod("length",
           signature="truthTable",
           definition=function(x) { return(length(x@data)); });
+
+setMethod("export",
+          signature="truthTable",
+          definition=function(object) {
+              if (class(object) != "truthTable") stop("bad class.");
+
+              cnames <- names(object@data[[1]]@inputs);
+              for (outName in names(object@data[[1]]@outcomes)) {
+                  outc <- object@data[[1]]@outcomes[[outName]];
+                  if (outc@type == "discrete") {
+                      for (val in outc@keyVal@range) {
+                          cname <- c(cname, paste(outName, val, sep="."));
+                      }
+                  } else {
+                      for (i in 1:outc@Nbins) {
+                          cnames <- c(cnames,
+                                      paste(outName,
+                                            paste("B", i, sep=""),
+                                            sep="."));
+                      }
+                  }
+              }
+
+              outFrame <- data.frame();
+              for (gp in object@data) {
+                  newRow <- list();
+                  for (i in 1:length(gp@inputs)) {
+                      newRow[[i]] <- getVal(gp@inputs[[i]]);
+                  }
+                  for (i in 1:length(gp@outcomes)) {
+                      for (count in gp@outcomes[[i]]@counts) {
+                          newRow[[length(newRow) + 1]] <- count;
+                      }
+                  }
+                  names(newRow) <- cnames;
+                  if (dim(outFrame)[1] == 0) {
+                      outFrame <- data.frame(newRow,
+                                             stringsAsFactors=FALSE);
+                  } else {
+                      outFrame <- rbind(outFrame,
+                                        data.frame(newRow,
+                                                   stringsAsFactors=FALSE));
+                  }
+              }
+
+              return(outFrame);
+          });
 
 
 
