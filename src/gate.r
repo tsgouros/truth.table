@@ -381,6 +381,15 @@ setMethod("names",
           signature="cnxnElement",
           definition=function(x) { return(names(x@sink)); });
 
+setMethod("[[",
+          signature="cnxnElement",
+          definition=function(x, i, j, ...) { return(names(x@sink)[i]); });
+
+setMethod("length",
+          signature="cnxnElement",
+          definition=function(x) { return(length(x@sink)); });
+
+
 ## Testing
 ce <- cnxnElement("C1:in1", "C2:in2");
 ce <- add(ce, "C3:in3");
@@ -518,14 +527,14 @@ setMethod("add",
           });
 
 ## Testing cnxnList
-cl <- cnxnList("AND2:out"="AND3:in1", "AND3.out"="OR1:in1,OR2:in2");
-cl <- add(cl, "AND3.out"="AND4:in2");
+cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"="OR1:in1,OR2:in2");
+cl <- add(cl, "AND3:out"="AND4:in2");
 cl <- add(cl, "in1"="AND1:in1");
 
 cl2 <- cnxnList("in1"=ce, "in2"=ce2);
 cl2 <- add(cl2, "in3"=ce3);
 
-if (formatVal(cl) != "AND2:out --> AND3:in1(8)\nAND3.out --> OR1:in1(9), OR2:in2(10), AND4:in2(11)\nin1 --> AND1:in1(12)") stop("cl problem");
+if (formatVal(cl) != "AND2:out --> AND3:in1(8)\nAND3:out --> OR1:in1(9), OR2:in2(10), AND4:in2(11)\nin1 --> AND1:in1(12)") stop("cl problem");
 if (formatVal(cl2) != "in1 --> C1:in1(1), C2:in2(2), C3:in3(3)\nin2 --> C1:in2(4), C2:in1(5)\nin3 --> C3:in2(13), C4:in1(14)") stop("cl2 problem");
 
 if (deleteTestVariables) rm(cl, cl2);
@@ -2648,6 +2657,84 @@ setMethod("export",
 
               return(outFrame);
           });
+
+
+## Returns a list of gate names from a gate.  The return list has the
+## fully-qualified name as the key and the local name as the value:
+## e.g. out[["C1.C2.AND"]] == list(label="AND",style="gate") There is also a
+## style=terminal for the bare ins and outs of compound gates.
+gate.exportGraphNodes <- function(g, name="") {
+
+    if (g@type == "atomic") {
+        if (name == "") stop("Need a name for atomic gates.");
+        outList <- list();
+        outList[[name]] <- list(label=name, style="gate");
+        return(outList);
+    } else {
+        outList <- list();
+        subio <- list();
+        for (ioname in names(g@io)) {
+            if (name == "") {
+                pname <- ioname;
+            } else {
+                pname <- paste(name, ioname, sep=".");
+            }
+            outList[[pname]] <- list(label=ioname, style="terminal");
+        }
+
+        for (i in 1:length(g@gateList)) {
+            subGates <- gate.exportGraphNodes(g@gateList[[i]],
+                                        name=names(g@gateList)[i]);
+
+            if (name != "")
+                for (j in 1:length(subGates))
+                    names(subGates)[j] <- paste(name,
+                                                subGates[[j]]$label, sep=".");
+
+            outList <- append(outList, subGates);
+        }
+        return(outList);
+    }
+}
+
+
+## Exports a graphViz description of the network instantiated by the gate.
+
+gate.exportGraph <- function(g) {
+    out <- "digraph gt { graph [overlap=true, fontsize=10, rankdir=LR]\n";
+
+    graphNodes <- gate.exportGraphNodes(g);
+    for (i in 1:length(graphNodes)) {
+        if (graphNodes[[i]]$style == "terminal") {
+            out <- paste(out, "node [shape=circle, style=filled, fillcolor=lightblue, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n", sep="");
+        } else {
+            out <- paste(out, "node [shape=triangle, orientation=270, style=filled, fillcolor=yellow, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n", sep="");
+        }
+    }
+
+    for (i in 1:length(g@cnxnList)) {
+        for (j in 1:length(g@cnxnList[[i]])) {
+            src <- strsplit(names(g@cnxnList)[i], ":")[[1]];
+            sink <- strsplit(g@cnxnList[[i]][[j]], ":")[[1]];
+
+            out <- paste(out, src[1], ":e -> ", sink[1], sep="");
+            if (length(src) > 1) {
+                if (length(sink) > 1) {
+                    out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"vee\", taillabel=\"", src[2],
+                                 "\",headlabel=\"", sink[2], "\"]\n", sep="");
+                } else {
+                    out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", taillabel=\"", src[2], "\"]\n", sep="");
+                }
+            } else {
+                out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", headlabel=\"", sink[2], "\"]\n", sep="");
+            }
+        }
+    }
+
+    return(paste(out, "}"));
+}
+
+
 
 
 
