@@ -48,7 +48,7 @@ setGeneric(name="check",
                standardGeneric("check");
            });
 
-## Adds values ot the various objects.
+## Adds values to the various objects.
 setGeneric(name="add",
            def=function(object, ...) {
                standardGeneric("add");
@@ -544,7 +544,7 @@ if (deleteTestVariables) rm(cl, cl2);
 ##
 ## A gval is a container that links a value and a type.  It provides its own
 ## checking facility for assignments.  Also note that a gval can have a type
-## bu t remain empty, with a value of "" or NaN, depending on whether it's
+## but remain empty, with a value of "" or NaN, depending on whether it's
 ## secretly a character or numeric data value.
 gval <- setClass(
     "gval",
@@ -2411,8 +2411,9 @@ truthTable <- setClass(
     validity=function(object) {
         if (class(object@data) != "list")
             return("Object data should be a list.");
-        if (sum(sapply(object@data, function(x) {class(x) == "gateProbs"})) !=
-            length(object@data))
+        if ((length(object@data) > 0) &&
+            (sum(sapply(object@data, function(x) {class(x) == "gateProbs"})) !=
+             length(object@data)))
             return("All elements of data list must be gateProbs.");
         return(TRUE);
     });
@@ -2426,8 +2427,9 @@ setMethod("initialize",
               args <- list(...);
 
               ## args must be uniform, either gateIO objects or gateProbs.
-              if (sum(sapply(args, function(x) { class(x) == "gateProbs"})) ==
-                   length(args)) {
+              if ((length(args) > 0) &&
+                  (sum(sapply(args, function(x) { class(x) == "gateProbs"})) ==
+                   length(args))) {
 
                   ## All gateProbs.  Add these all to the list, but ignore
                   ## duplicates (input lists identical).
@@ -2443,9 +2445,10 @@ setMethod("initialize",
                           }
                       }
                   }
-              } else if (sum(sapply(args,
-                                    function(x) { class(x) == "gateIO"})) ==
-                         length(args)) {
+              } else if ((length(args) > 0) &&
+                         (sum(sapply(args,
+                                     function(x) { class(x) == "gateIO"})) ==
+                          length(args))) {
                   ## All gateIO.  Add these by creating a compatible
                   ## gateProbs object for each one.  Record the added
                   ## objects, too, and if there are repeats, just record
@@ -2479,6 +2482,8 @@ setMethod("initialize",
                           }
                       }
                   }
+              } else if (length(args) == 0) {
+                  ## An empty truth table is allowed.
               } else {
                   stop("Arg list must be uniform, either gateIO or gateProbs.");
               }
@@ -2582,10 +2587,12 @@ setMethod("add",
               if ("Nbins" %in% names(args)) Nbins <- args[["Nbins"]];
 
               for (arg in args) {
+
                   if (class(arg) == "gateProbs") {
                       comps <- sapply(object@data,
                                       function(x) {x@is.compat(arg)});
-                      if (sum(comps) == 0) { # This is new; add it.
+                      if ((length(comps) == 0) || (sum(comps) == 0)) { #
+                          ## This is new; add it.
                           object@data[[length(object@data) + 1]] <- arg;
                       } # Otherwise, ignore it.
 
@@ -2593,13 +2600,26 @@ setMethod("add",
 
                       comps <- sapply(object@data,
                                       function(x) {x@is.compat(arg)});
-                      if (sum(comps) == 0) { # This is new; add it.
-                          object@data[[length(object@data) + 1]] <-
+                      if ((length(comps) == 0) || (sum(comps) == 0)) {
+                          ## This is new; add it.
+                          new <- length(object@data) + 1;
+                          ## Add an object of the correct shape.
+                          object@data[[new]] <-
                               gateProbs(template=arg, Nbins=Nbins);
-                      } else if (sum(comps) == 1) { # This is not new; record.
+                          ## Record the data in it.
+                          object@data[[new]] <-
+                              record(object@data[[new]], arg);
+
+                      } else if (sum(comps) == 1) {
+                          ## This is not new; just record the arg.
                           comp <- which(comps);
                           object@data[[comp]] <- record(object@data[[comp]],
                                                         arg);
+                      }
+                  } else if (class(arg) == "gateIOList") {
+                      ## Go through the list and add each gateIO individually.
+                      for (g in arg@data) {
+                          object <- add(object, g);
                       }
                   }
               }
@@ -2616,12 +2636,13 @@ setMethod("export",
           definition=function(object) {
               if (class(object) != "truthTable") stop("bad class.");
 
+              ## Collect the names from the first gateProbs object in the table.
               cnames <- names(object@data[[1]]@inputs);
               for (outName in names(object@data[[1]]@outcomes)) {
                   outc <- object@data[[1]]@outcomes[[outName]];
                   if (outc@type == "discrete") {
-                      for (val in outc@keyVal@range) {
-                          cname <- c(cname, paste(outName, val, sep="."));
+                      for (val in outc@keyVal@type@range) {
+                          cnames <- c(cnames, paste(outName, val, sep="."));
                       }
                   } else {
                       for (i in 1:outc@Nbins) {
@@ -2633,6 +2654,7 @@ setMethod("export",
                   }
               }
 
+              ## Got the names, now assemble the data.
               outFrame <- data.frame();
               for (gp in object@data) {
                   newRow <- list();
@@ -2657,6 +2679,23 @@ setMethod("export",
 
               return(outFrame);
           });
+
+## Testing truthTable.
+tt <- truthTable();
+tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("0"),"in2"=gval("0"))));
+tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("0"),"in2"=gval("1"))));
+tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("0"))));
+tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("1"))));
+tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("1"))));
+tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("1"))));
+
+
+if (formatVal(tt) != "[[1]]\nI: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[2]]\nI: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[3]]\nI: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[4]]\nI: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0) 1 (1) \n\n")
+    stop("tt truthTable problem.");
+if (formatVal(tt, count=TRUE) != "[[1]]\nI: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[2]]\nI: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[3]]\nI: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[4]]\nI: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0) 1 (3) \n\n")
+    stop("tt truthTable count problem.");
+
+if (deleteTestVariables) rm(tt);
 
 
 ## Returns a list of gate names from a gate.  The return list has the
