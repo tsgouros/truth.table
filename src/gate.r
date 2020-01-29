@@ -714,8 +714,8 @@ setMethod("check",
 
 gv <- gval("0", type=binary);
 if (formatVal(gv) != "0 (symbol: 0/1)") stop("gv problem");
-gv <- gval(0.5, float);
-if (formatVal(gv) != "0.5 (float: min: 0, max: 1)")
+gv2 <- gval(0.5, float);
+if (formatVal(gv2) != "0.5 (float: min: 0, max: 1)")
     stop("gv float problem");
 tryCatch({gv <- gval(0.5, integer);},
          error=function(cond) {
@@ -744,13 +744,15 @@ if (getVal(gv) != "0") stop("second gv setVal problem");
 if (is.empty(gv)) stop("gv is not empty");
 if (!is.empty(gval(type=binary))) stop("empty gval reads as full.");
 
-if (deleteTestVariables) rm(gv);
+if (deleteTestVariables) rm(gv, gv2);
 
 
 ############################################################################
 ## INPUTS AND OUTPUTS
 ##
-## A gateIO object holds a set of inputs and outputs for some gate.
+## A gateIO object holds a set of inputs and outputs for some gate.  This
+## is two lists of gvals, one for the inputs to some gate and the other for
+## the output.  Don't use 'replace' or 'type' for an input or output label.
 gateIO <- setClass(
     "gateIO",
     slots=c(inputs="list", outputs="list"),
@@ -768,7 +770,8 @@ gateIO <- setClass(
         return(TRUE);
     });
 
-## gateIO(inp=list("in1"=gval("0",binary), "in2"=gval(1, binary)), out=...)
+## gateIO(input=list("in1"=gval("0",binary), "in2"=gval(1, binary)),
+##        output=list(...))
 ##
 setMethod("initialize",
           signature="gateIO",
