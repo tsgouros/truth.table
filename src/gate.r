@@ -38,8 +38,12 @@ deleteTestVariables <- FALSE;
 ## A 'format' function to be just a print function that works well with
 ## others.  Usually just the same as 'print' without the final \n.
 setGeneric(name="formatVal",
-           def=function(object, ...) {
+           def=function(object, style="short", ...) {
                standardGeneric("formatVal");
+           });
+setGeneric(name="describe",
+           def=function(object) {
+               standardGeneric("describe");
            });
 
 ## For types, checks to see if a value is a type.
@@ -133,13 +137,24 @@ type <- setClass(
 
 setMethod("formatVal",
           signature="type",
-          definition=function(object) {
+          definition=function(object, style) {
               if (object@baseType == "symbol") {
-                  return(paste(object@baseType, ": ",
-                               paste(object@range, collapse="/"), sep=""));
+                  if (style == "verbose") {
+                      return(paste("baseType=", object@baseType, ": range=",
+                                   paste(object@range, collapse="/"), sep=""));
+                  } else {
+                      return(paste(object@baseType, ": ",
+                                   paste(object@range, collapse="/"), sep=""));
+                  }
               } else {
-                  return(paste(object@baseType, ": min: ", object@min,
-                               ", max: ", object@max, sep=""));
+                  if (style == "verbose") {
+                      return(paste("baseType=", object@baseType,
+                                   ": min: ", object@min,
+                                   ", max: ", object@max, sep=""));
+                  } else {
+                      return(paste(object@baseType, ": min: ", object@min,
+                                   ", max: ", object@max, sep=""));
+                  }
               }
           })
 
@@ -147,6 +162,12 @@ setMethod("show",
           signature="type",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          })
+
+setMethod("describe",
+          signature="type",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
           })
 
 ## Use 'check(binary, "0")' to see whether a value is an acceptable member of
@@ -239,21 +260,38 @@ setMethod("add",
 
 setMethod("formatVal",
           signature="typeList",
-          definition=function(object) {
-              out <- "";
-              for (name in names(object))
-                  out <- paste(out, name, "(",
-                               formatVal(object[[name]]), ") ", sep="");
-              return(out);
+          definition=function(object, style) {
+              out <- c();
+              if (style == "verbose") {
+                  out <- c("data:");
+                  for (item in 1:length(object)) {
+                      out <- c(out,
+                               paste("[[", item, "]] \"",
+                                     names(object)[item], "\" (",
+                                     formatVal(object[[item]], style="short"),
+                                     ")", sep=""));
+                  }
+              } else {
+                  for (name in names(object)) {
+                      out <- c(out,
+                               paste(name, " (",
+                                     formatVal(object[[name]]), ")", sep=""));
+                  }
+              }
+              return(paste(out, collapse="\n"));
           })
 
 setMethod("show",
           signature="typeList",
           definition=function(object) {
-              for (name in names(object))
-                  cat(name, "(",
-                      formatVal(object[[name]]), ") ", sep="", "\n");
-          })
+              cat(formatVal(object), "\n");
+          });
+
+setMethod("describe",
+          signature="typeList",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
 
 ## A couple of things to make a typeList act more like a list.
 setMethod("[[",
@@ -273,10 +311,9 @@ setMethod("names",
 tl <- typeList("binary"=binary, "integer"=integer);
 tl <- add(tl, "float"=float);
 
-if (formatVal(tl) != "binary(symbol: 0/1) integer(integer: min: 0, max: 100) float(float: min: 0, max: 1) ") stop("typeList problem");
+if (formatVal(tl) != "binary (symbol: 0/1)\ninteger (integer: min: 0, max: 100)\nfloat (float: min: 0, max: 1)") stop("typeList problem");
 if (formatVal(tl[["integer"]]) != "integer: min: 0, max: 100")
     stop("typeList problem with subsetting");
-if (deleteTestVariables) rm(tl);
 
 
 ############################################################################
@@ -295,7 +332,7 @@ cnxnIDCounter <- 0;
 cnxnElement <- setClass(
     "cnxnElement",
     slots = c(sink="list", color="vector", weight="numeric"),
-    prototype = c(sink=list(), color=vector("numeric",3), weight=1.1),
+    prototype = c(sink=list(), color=vector("numeric",3), weight=1.0),
     validity = function(object) {
 
         ## Empty sink lists are ok.
@@ -311,16 +348,23 @@ cnxnElement <- setClass(
         return(TRUE);
     })
 
-
-## A cnxnElement is initialized like this: cnxnElement("C2:in1", "C1:in2") or
-## cnxnElement(c("C2:in1", "C2:in2")).  Either will work.
+##
+## There are three ways to initialize a cnxnElement:
+##
+##  1. cnxnElement(c("C2:in1", "C2:in2"), color=c(0.5,0.5,0.5), weight=2)
+##  2. cnxnElement("C2:in1", "C2:in2", color=c(0.5,0.5,0.5), weight=2)
+##  3. cnxnElement("C2:in1,C2:in2", color=c(0.5,0.5,0.5), weight=2)
+##
 setMethod("initialize",
           signature="cnxnElement",
           definition=function(.Object, ...) {
               args <- list(...);
-              if ((length(args) == 1) && grepl(",", args[[1]])) {
+              ## Check for case 3
+              if (grepl(",", args[[1]])) {
                   args <- strsplit(args[[1]], split=",")[[1]];
               }
+
+              ## Check for case 1
 
               for (item in args) {
                   for (subitem in item) {
@@ -336,20 +380,45 @@ setMethod("initialize",
 
 setMethod("formatVal",
           signature="cnxnElement",
-          definition=function(object) {
-              out <- c();
-              if (length(object@sink) < 1) return("");
-              for (i in 1:length(object@sink)) {
-                  out <- c(out, paste(names(object@sink)[i],
-                                      "(", object@sink[[i]], ")", sep=""));
+          definition=function(object, style) {
+              if (style == "verbose") {
+                  out <- c();
+                  if (length(object@sink) > 0) {
+                      for (i in 1:length(object@sink)) {
+                          out <- c(out,
+                                   paste(names(object@sink)[i],
+                                         "(", object@sink[[i]], ")", sep=""));
+                      }
+                  }
+                  out <- paste(out, collapse=", ");
+                  out <- paste("sink: ", out,
+                               "(weight: ", object@weight, ")",
+
+                               sep="");
+              } else {
+                  out <- c();
+                  if (length(object@sink) > 0) {
+                      for (i in 1:length(object@sink)) {
+                          out <- c(out,
+                                   paste(names(object@sink)[i],
+                                         "(", object@sink[[i]], ")", sep=""));
+                      }
+                  }
+                  out <- paste(out, collapse=", ");
               }
-              return(paste(out, collapse=", "));
+              return(out);
           });
 
 setMethod("show",
           signature="cnxnElement",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          });
+
+setMethod("describe",
+          signature="cnxnElement",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
           });
 
 setMethod("add",
@@ -399,8 +468,6 @@ if (formatVal(ce2) != "C1:in2(4), C2:in1(5)") stop("ce2 problem");
 if (formatVal(ce) != "C1:in1(1), C2:in2(2), C3:in3(3)")
     stop("ce problem");
 if (formatVal(ce3) != "C3:in2(6), C4:in1(7)") stop("ce3 problem");
-
-if (deleteTestVariables) rm(ce, ce2, ce3);
 
 ############################################################################
 ## CONNECTION LISTS
@@ -488,6 +555,12 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
+setMethod("describe",
+          signature="cnxnList",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
+
 setMethod("is.empty",
           signature="cnxnList",
           definition=function(object, ...) {
@@ -536,8 +609,6 @@ cl2 <- add(cl2, "in3"=ce3);
 
 if (formatVal(cl) != "AND2:out --> AND3:in1(8)\nAND3:out --> OR1:in1(9), OR2:in2(10), AND4:in2(11)\nin1 --> AND1:in1(12)") stop("cl problem");
 if (formatVal(cl2) != "in1 --> C1:in1(1), C2:in2(2), C3:in3(3)\nin2 --> C1:in2(4), C2:in1(5)\nin3 --> C3:in2(13), C4:in1(14)") stop("cl2 problem");
-
-if (deleteTestVariables) rm(cl, cl2);
 
 ############################################################################
 ## VALUES, LINKED WITH TYPES
@@ -704,6 +775,12 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
+setMethod("describe",
+          signature="gval",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
+
 setMethod("check",
           signature="gval",
           definition=function(object, testVal) {
@@ -743,8 +820,6 @@ if (getVal(gv) != "0") stop("second gv setVal problem");
 
 if (is.empty(gv)) stop("gv is not empty");
 if (!is.empty(gval(type=binary))) stop("empty gval reads as full.");
-
-if (deleteTestVariables) rm(gv, gv2);
 
 
 ############################################################################
@@ -857,6 +932,12 @@ setMethod("show",
           signature="gateIO",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          });
+
+setMethod("describe",
+          signature="gateIO",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
           });
 
 setMethod("getVal",
@@ -1071,8 +1152,6 @@ if (!is.empty(gateIO())) stop("empty gateIO is not full.");
 
 if (getVal(gio[["in1"]]) != 5) stop("gio subsetting problem.");
 
-if (deleteTestVariables) rm(gio);
-
 ############################################################################
 ## COLLECTIONS OF INPUTS AND OUTPUTS
 ##
@@ -1141,7 +1220,10 @@ setMethod("formatVal",
                                         prefix=paste(prefix, " ", sep="")),
                               sep="");
 
+              ## Do the rest of the elements in whatever order they are
+              ## stored.
               for (i in 1:length(object@data)) {
+                  ## Skip 'this' element.
                   if (names(object@data)[i] == "this") next;
 
                   outstr <- paste(outstr, "\n", prefix, "\n",
@@ -1161,6 +1243,12 @@ setMethod("show",
           signature="gateIOList",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          });
+
+setMethod("describe",
+          signature="gateIOList",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
           });
 
 ## Things to make a gateIOList act more like a list.
@@ -1272,25 +1360,23 @@ if (formatVal(gls) != "this:\n I: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\n O: 
 if (formatVal(setVal(gls, "AND1:in2", gval("0"))) != "this:\n I: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)\n\nAND1:\n I: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
     stop("third-and-a-half gls problem");
 
-if (deleteTestVariables) rm(gls);
 
-
-
-
+###########################################################################
+##
 ## From here, we create a couple of facilities for managing the hierarchical
 ## names of the gateIOList.  For example, give me all the names with a given
 ## prefix, or incorporate this sub-list with this prefix and that sort of
 ## thing.
-
+##
 ## add(gateIOList, "AND1:in1", "0", binary)
-
+##
 ## add(gateIOList, "AND1", gateIO object)
-
-## subset(gateIOList, expr="C1.*") -> gives you the list with all the names
-## that begin with "C1", with the "C1" removed from the ones that have it as
-## a prefix, and the "C1" entry itself turned to 'this', for input to the C1
-## gate.  We considered doing this with the '[[' method, but that seemed like
-## it would interfere with simpler usages.
+##
+## subset(gateIOList, expr="C1") -> gives you the list with all the names
+## that begin with "C1", with the "C1" removed from the ones that have it
+## as a prefix, and the "C1" entry itself turned to 'this', for input to
+## the C1 gate.  (We considered doing this with the '[[' method, but that
+## seemed like it would interfere with simpler usages.)
 setMethod("subset",
           signature = "gateIOList",
           definition= function(object, ...) {
@@ -1313,8 +1399,11 @@ setMethod("subset",
                       if (newName == "") {
                           newName <- "this";
                       } else {
-                          ## Drop the '.'.
-                          newName <- substr(newName, 2, nchar(newName));
+                          ## Drop the '.' if it's there.  If it isn't,
+                          ## there is probably something wrong, but we're
+                          ## letting that pass here.
+                          if (substr(newName,1,1) == ".")
+                              newName <- substr(newName, 2, nchar(newName));
                       }
 
                       outList[[newName]] <- object@data[[name]];
@@ -1325,7 +1414,7 @@ setMethod("subset",
 
 
 ## Two forms:
-## add(gatIOList, newName=gateIO.item) and
+## add(gateIOList, newName=gateIO.item) and
 ## add(gateIOList, tag="C1", sublist=C1sublist) Incorporates the output
 ## sublist from the C1 gate back into a larger list, prepending "C1" to
 ## all the names.
@@ -1404,8 +1493,6 @@ glsSub <- subset(gls, expr="C1.C2");
 if (formatVal(glsSub) != "this:\n I: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\n\nXOR1:\n I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
     stop("fourth gls sub add problem.");
 
-if (deleteTestVariables) rm(gls, glsSub, glsSubA);
-
 
 ############################################################################
 ## AN ABSTRACTION OF A GATE
@@ -1441,19 +1528,19 @@ if (deleteTestVariables) rm(gls, glsSub, glsSubA);
 ## unit.  But we want the functional groups to use the same 'ticks' as their
 ## parent.
 ##
-## This means that a transformation might have a contingent nature, returning
-## not a value, but a state of all the inputs to each of its operations, that
-## can be absorbed into the state of the parent.  So our record of the state
-## (the 'state list') has to be hierarchical.  We do
+## This means that a transformation might have a contingent nature,
+## returning not a value, but a state of all the inputs to each of its
+## operations, that can be absorbed into the state of the parent.  So our
+## record of the state (the 'state list') has to be hierarchical.  We do
 ## that by creating a hierarchy of the names of the inputs and outputs.  So
 ## the root list might begin with a list of three inputs, but those get
-## mapped to the various inputs to this or that gate, and "in1" is translated
-## to "AND1:in1" or "C2:in2" or whatever.  Then the AND1 and C2 gates are
-## executed with whatever inputs are available.  Upon execution of AND1, its
-## inputs are renamed from "AND1:in1" to simply "in1", which is how the AND1
-## gate thinks of it.  Its output value list has names like "out" or "out1"
-## or whatever, and when reincorporating those values into the parent list,
-## they are prefixed with "AND1".  So:
+## mapped to the various inputs to this or that gate, and "in1" is
+## translated to "AND1:in1" or "C2:in2" or whatever.  Then the AND1 and C2
+## gates are executed with whatever inputs are available.  Upon execution
+## of AND1, its inputs are renamed from "AND1:in1" to simply "in1", which
+## is how the AND1 gate thinks of it.  Its output value list has names like
+## "out" or "out1" or whatever, and when reincorporating those values into
+## the parent list, they are prefixed with "AND1".  So:
 ##
 ##  "AND1:in1" -> "in1" -> execute AND1 gate -> "out" -> "AND1:out"
 
@@ -1772,8 +1859,11 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
-
-
+setMethod("describe",
+          signature="gate",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
 
 
 ## Some testing of the gate object.
@@ -1851,8 +1941,6 @@ if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=bin
 if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
     stop("third gate problem.");
 
-
-if (deleteTestVariables) rm(g.xor, g.and, g.or, g.comp);
 
 ############################################################################
 ## PROBABILISTIC RESULTS
@@ -2008,6 +2096,12 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
+setMethod("describe",
+          signature="outcome",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
+
 setMethod("showCount",
           signature="outcome",
           definition=function(object) {
@@ -2080,8 +2174,6 @@ if (formatVal(oc) != "0 (0.4) 1 (0.6) ")
     stop("discrete outcome problem.");
 if (formatVal(record(oc, "0")) != "0 (0.4231) 1 (0.5769) ")
     stop("record outcome problem.");
-
-if (deleteTestVariables) rm(oc, ocf);
 
 ############################################################################
 ## INPUTS AND PROBABILISTIC RESULTS
@@ -2311,6 +2403,12 @@ setMethod("show",
               cat(formatVal(object), "\n");
           });
 
+setMethod("describe",
+          signature="gateProbs",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
+
 setMethod("showCount",
           signature="gateProbs",
           definition=function(object) {
@@ -2389,8 +2487,6 @@ gpt <- record(gpt, gateIO(i=list("in1"=gval(0.1, float),"in2"=gval(0.7, float)),
 
 if (formatVal(gpt) != "I: in1=0.2 (float: min: 0, max: 1), in2=0.7 (float: min: 0, max: 1)\nO: out=[0 (0) 0.25 (0.125) 0.5 (0.875) 0.75 (0) 1]")
     stop("gpt template gateProbs problem.");
-
-if (deleteTestVariables) rm(gp, gpf, gpt);
 
 ############################################################################
 ## TRUTH TABLE
@@ -2527,6 +2623,12 @@ setMethod("show",
           signature="truthTable",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          });
+
+setMethod("describe",
+          signature="truthTable",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
           });
 
 setMethod("showCount",
@@ -2698,8 +2800,6 @@ if (formatVal(tt) != "[[1]]\nI: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out
 if (formatVal(tt, count=TRUE) != "[[1]]\nI: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[2]]\nI: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[3]]\nI: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[4]]\nI: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0) 1 (3) \n\n")
     stop("tt truthTable count problem.");
 
-if (deleteTestVariables) rm(tt);
-
 
 ## Returns a list of gate names from a gate.  The return list has the
 ## fully-qualified name as the key and the local name as the value:
@@ -2741,11 +2841,13 @@ gate.exportGraphNodes <- function(g, name="") {
 
 
 ## Exports a graphViz description of the network instantiated by the gate.
-
-gate.exportGraph <- function(g) {
+## You'll want to offer a name for the root gate.  The gates within a
+## compound gate have names, but the main one does not, so you need to
+## specify it in the argument list.
+gate.exportGraph <- function(g, name="gate") {
     out <- "digraph gt { graph [overlap=true, fontsize=10, rankdir=LR]\n";
 
-    graphNodes <- gate.exportGraphNodes(g);
+    graphNodes <- gate.exportGraphNodes(g, name);
     for (i in 1:length(graphNodes)) {
         if (graphNodes[[i]]$style == "terminal") {
             out <- paste(out, "node [shape=circle, style=filled, fillcolor=lightblue, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n", sep="");
@@ -2754,21 +2856,23 @@ gate.exportGraph <- function(g) {
         }
     }
 
-    for (i in 1:length(g@cnxnList)) {
-        for (j in 1:length(g@cnxnList[[i]])) {
-            src <- strsplit(names(g@cnxnList)[i], ":")[[1]];
-            sink <- strsplit(g@cnxnList[[i]][[j]], ":")[[1]];
+    if (length(g@cnxnList) > 0) {
+        for (i in 1:length(g@cnxnList)) {
+            for (j in 1:length(g@cnxnList[[i]])) {
+                src <- strsplit(names(g@cnxnList)[i], ":")[[1]];
+                sink <- strsplit(g@cnxnList[[i]][[j]], ":")[[1]];
 
-            out <- paste(out, src[1], ":e -> ", sink[1], sep="");
-            if (length(src) > 1) {
-                if (length(sink) > 1) {
-                    out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"vee\", taillabel=\"", src[2],
-                                 "\",headlabel=\"", sink[2], "\"]\n", sep="");
+                out <- paste(out, src[1], ":e -> ", sink[1], sep="");
+                if (length(src) > 1) {
+                    if (length(sink) > 1) {
+                        out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"vee\", taillabel=\"", src[2],
+                                     "\",headlabel=\"", sink[2], "\"]\n", sep="");
+                    } else {
+                        out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", taillabel=\"", src[2], "\"]\n", sep="");
+                    }
                 } else {
-                    out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", taillabel=\"", src[2], "\"]\n", sep="");
+                    out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", headlabel=\"", sink[2], "\"]\n", sep="");
                 }
-            } else {
-                out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", headlabel=\"", sink[2], "\"]\n", sep="");
             }
         }
     }
@@ -2776,11 +2880,7 @@ gate.exportGraph <- function(g) {
     return(paste(out, "}"));
 }
 
-
-
-
-
-
+## ADD TESTS HERE.
 
 ## Create a data frame of nodes suitable for use with DiagrammeR graphs.  The
 ## recurse flag indicates whether component gates are expanded into their
@@ -2884,14 +2984,14 @@ gate.nodeList <- function(g, prefix="", uid=1) {
         for (iname in names(g$inputTypes)) {
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(label=iname,id=uid,
-                                             gid=g$id, type="IO",
+                                             gid=g@id, type="IO",
                                              stringsAsFactors=FALSE));
             uid <- uid + 1;
         }
     }
 
     ## Check gate type
-    if (g$type == "atomic") {
+    if (g@type == "atomic") {
         ## This is an atomic gate, just return a single line with its data.
         out.nodeList <- rbind(out.nodeList,
                               data.frame(label=prefix, id=uid, gid=g$id, type="G",
@@ -2901,10 +3001,10 @@ gate.nodeList <- function(g, prefix="", uid=1) {
         ## This is a composite gate, and g$gateList is a list of other gates.
 
         ## Sort through the subsidiary gates...
-        for (name in names(g$gateList)) {
+        for (name in names(g@gateList)) {
 
             ## ... making a nodeList for each of them
-            d <- gate.nodeList(g$gateList[[name]], prefix=name, uid=uid);
+            d <- gate.nodeList(g@gateList[[name]], prefix=name, uid=uid);
 
             ## The gate ID is arbitrary, just needs to be unique in this table.
             uid <- uid + dim(d)[1];
@@ -3107,4 +3207,20 @@ gate.simplify.edgeList <- function(edges, nodes) {
     return(edges[(edges$to!=0),c("id","from","to")]);
 }
 
+
+#########################################################################
+##
+## Clean up
+if (deleteTestVariables) {
+    rm(tl);
+    rm(ce, ce2, ce3);
+    rm(cl, cl2);
+    rm(gv, gv2);
+    rm(gio);
+    rm(gls, glsSub, glsSubA);
+    rm(g.xor, g.and, g.or, g.comp, g.comp2);
+    rm(oc, ocf);
+    rm(gp, gpf, gpt);
+    rm(tt);
+}
 
