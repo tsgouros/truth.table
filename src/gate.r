@@ -322,17 +322,96 @@ if (formatVal(tl[["integer"]]) != "integer: min: 0, max: 100")
 ## We define connections among the gates with a cnxnList of cnxnElements
 ## specifying a set of "sinks" for each "source".  Connections can be
 ## one-source-to-one-sink or one-source-to-many-sinks, but not
-## many-sources-to-one-sink.
+## many-sources-to-one-sink.  (If you need to do that, you need to define a
+## gate that can undertake the combination of sources into one output and
+## then send that somewhere.)
 ##
-## A cnxnElement is a connection between some source and one or more sink.
-## The cnxnElement really just has the sinks, since the source is in the key
-## of the cnxnList.  We are using an object here so that we can eventually
-## use it to hold graphic and other information about the connection.
+## To do this we need a 'cnxn' object to hold an id, color, and weight, and
+## a cnxns to be a list of such objects that connects a sink name to
+## each id, color, and weight.  Those lists will then be part of a cnxnList
+## object to connect sources and sinks.
 cnxnIDCounter <- 0;
-cnxnElement <- setClass(
-    "cnxnElement",
-    slots = c(sink="list", color="vector", weight="numeric"),
-    prototype = c(sink=list(), color=vector("numeric",3), weight=1.0),
+cnxn <- setClass(
+    "cnxn",
+    slots = c(id="numeric", color="vector", weight="numeric"),
+    validity = function(object) {
+        if ((class(object@id) != "numeric") || (object@id != round(object@id)))
+            return(paste("Bad ID for connection", object@sink));
+
+        if ((class(object@weight) != "numeric") ||
+            (object@weight < 0))
+            return(paste("Bad weight for connection", object@sink));
+
+        if ((class(object@color) != "numeric") ||
+            (sum(object@color) > 3) ||
+            (sum(object@color) < 0))
+            return(paste("Bad color for connection", object@sink));
+
+        return(TRUE);
+    })
+
+setMethod("initialize",
+          signature="cnxn",
+          definition=function(.Object, ...) {
+              args <- list(...);
+
+              cnxnIDCounter <<- cnxnIDCounter + 1;
+              .Object@id <- cnxnIDCounter;
+
+              if ("color" %in% names(args)) {
+                  .Object@color = args[["color"]];
+              } else {
+                  .Object@color = c(0.5, 0.5, 0.5);
+              }
+
+              if ("weight" %in% names(args)) {
+                  .Object@weight = args[["weight"]];
+              } else {
+                  .Object@weight = 1.0;
+              }
+
+              validObject(.Object);
+
+              ## This is magic for adjusting the global variable.
+              assign("cnxnIDCounter", cnxnIDCounter, envir = .GlobalEnv)
+              return(.Object);
+          });
+
+setMethod("formatVal",
+          signature="cnxn",
+          definition=function(object, style) {
+              out <- "";
+              if (style == "verbose") {
+                  out <- paste("id: ", object@id,
+                               ", color: (", paste(object@color, collapse=", "),
+                               "), weight: ", object@weight, sep="");
+              } else {
+                  out <- paste(object@id,
+                               " (", paste(object@color, collapse=","),
+                               "),", object@weight, sep="");
+              }
+              return(out);
+          });
+
+setMethod("show",
+          signature="cnxn",
+          definition=function(object) {
+              cat(formatVal(object), "\n");
+          });
+
+setMethod("describe",
+          signature="cnxn",
+          definition=function(object) {
+              cat(formatVal(object, style="verbose"), "\n");
+          });
+
+
+## A cnxns object is just one or a bunch of names to attach to cnxn nodes.
+## Think of it as a list of 'sinks' to which a source will be connected.
+cnxns <- setClass(
+    "cnxns",
+    slots = c(sink="list"),
+    prototype = c(sink=list()),
     validity = function(object) {
 
         ## Empty sink lists are ok.
@@ -341,67 +420,68 @@ cnxnElement <- setClass(
         for (i in 1:length(object@sink)) {
             if (names(object@sink)[i] == "")
                 return("Need a name for each entry.");
-            if ((class(object@sink[[i]]) != "numeric") ||
-                (object@sink[[i]] != round(object@sink[[i]])))
-                return(paste("Bad ID for connection", names(object@sink)[i]));
+            if (class(object@sink[[i]]) != "cnxn")
+                return(paste("Bad connection:", names(object@sink)[i]));
         }
         return(TRUE);
     })
 
 ##
-## There are three ways to initialize a cnxnElement:
+## This is how to initialize a cnxns object:
 ##
-##  1. cnxnElement(c("C2:in1", "C2:in2"), color=c(0.5,0.5,0.5), weight=2)
-##  2. cnxnElement("C2:in1", "C2:in2", color=c(0.5,0.5,0.5), weight=2)
-##  3. cnxnElement("C2:in1,C2:in2", color=c(0.5,0.5,0.5), weight=2)
+##  $ cnxns("C2:in1"=cnxn(color=c(0.5,0.5,0.5), weight=2),...)
 ##
+##  $ cnxns("C2:in1", "C1:in2", ...)  This will produce a cnxn object with
+##  the default color and width values for each sink name.
 setMethod("initialize",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(.Object, ...) {
               args <- list(...);
-              ## Check for case 3
-              if (grepl(",", args[[1]])) {
-                  args <- strsplit(args[[1]], split=",")[[1]];
-              }
 
-              ## Check for case 1
-
-              for (item in args) {
-                  for (subitem in item) {
-                      cnxnIDCounter <<- cnxnIDCounter + 1;
-                      .Object@sink[[subitem]] <- cnxnIDCounter;
+              if (length(args) > 0) {
+                  for (i in 1:length(args)) {
+                      if (is.null(names(args)) || names(args)[i] == "") {
+                          if (class(args[[i]]) == "character") {
+                              .Object@sink[[args[[i]]]] <- cnxn();
+                          } else {
+                              stop("Bad spec for source.");
+                          };
+                      } else {
+                          name <- names(args)[i];
+                          .Object@sink[[name]] <- args[[name]];
+                      }
                   }
               }
+
               validObject(.Object);
-              ## This is magic for adjusting the global variable.
-              assign("cnxnIDCounter", cnxnIDCounter, envir = .GlobalEnv)
               return(.Object);
           });
 
 setMethod("formatVal",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(object, style) {
               if (style == "verbose") {
                   out <- c();
                   if (length(object@sink) > 0) {
                       for (i in 1:length(object@sink)) {
                           out <- c(out,
-                                   paste(names(object@sink)[i],
-                                         "(", object@sink[[i]], ")", sep=""));
+                                   paste("[[", i, "]] ",
+                                         names(object@sink)[i],
+                                         "(", formatVal(object@sink[[i]],
+                                                        style="verbose"),
+                                         ")", sep=""));
                       }
                   }
-                  out <- paste(out, collapse=", ");
-                  out <- paste("sink: ", out,
-                               "(weight: ", object@weight, ")",
-
+                  out <- paste(out, collapse="\n");
+                  out <- paste("sink:\n", out,
                                sep="");
               } else {
                   out <- c();
                   if (length(object@sink) > 0) {
-                      for (i in 1:length(object@sink)) {
+                      for (name in names(object@sink)) {
                           out <- c(out,
-                                   paste(names(object@sink)[i],
-                                         "(", object@sink[[i]], ")", sep=""));
+                                   paste(name, "(", object@sink[[name]]@id,
+                                         ")", sep=""));
                       }
                   }
                   out <- paste(out, collapse=", ");
@@ -410,36 +490,45 @@ setMethod("formatVal",
           });
 
 setMethod("show",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(object) {
               cat(formatVal(object), "\n");
           });
 
 setMethod("describe",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(object) {
               cat(formatVal(object, style="verbose"), "\n");
           });
 
+
 setMethod("add",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(object, ...) {
               args <- list(...);
               for (i in 1:length(args)) {
 
-                  cnxnIDCounter <<- cnxnIDCounter + 1;
-                  if (class(args[[i]]) == "character") {
-                      object@sink[[args[[i]] ]] <- cnxnIDCounter;
-                  } else if (class(args[[i]]) == "cnxnElement") {
-                      for (cnxn in names(args[[i]]@sink)) {
-                          ## Notice that this will overwrite previous
-                          ## connections if they are the same.  I don't think
-                          ## this is a problem, but the ID will change.
-                          object@sink[[cnxn]] <- cnxnIDCounter;
-                          cnxnIDCounter <<- cnxnIDCounter + 1;
+                  if (class(args[[i]]) == "cnxn") {
+                      if (is.null(names(args)) || (names(args)[i] == "")) {
+                          stop("Need a name for each cnxn object.");
+                      } else {
+                          object@sink[[names(args)[i]]] <- args[[i]];
+                      }
+                  } else if (class(args[[i]]) == "cnxns") {
+                      sublist <- args[[i]];
+                      for (cnxn in names(sublist)) {
+                          ## This will overwrite previous connections if the
+                          ## names are the same.  I don't think this is a
+                          ## problem, but the ID will change.
+                          object@sink[[cnxn]] <-
+                              ## Create a new cnxn object so they all are
+                              ## unique IDs.
+                              cnxn(color=sublist[[cnxn]]@color,
+                                   weight=sublist[[cnxn]]@weight);
                       }
                   } else {
-                      stop("Problem with adding cnxnElement.");
+                      stop("Problem with adding cnxns.  Bad class:",
+                           class(args[[i]]));
                   }
               }
               assign("cnxnIDCounter", cnxnIDCounter, envir = .GlobalEnv)
@@ -447,40 +536,44 @@ setMethod("add",
           });
 
 setMethod("names",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(x) { return(names(x@sink)); });
 
 setMethod("[[",
-          signature="cnxnElement",
-          definition=function(x, i, j, ...) { return(names(x@sink)[i]); });
+          signature="cnxns",
+          definition=function(x, i, j, ...) { return(x@sink[[i]]); });
 
 setMethod("length",
-          signature="cnxnElement",
+          signature="cnxns",
           definition=function(x) { return(length(x@sink)); });
 
 
 ## Testing
-ce <- cnxnElement("C1:in1", "C2:in2");
-ce <- add(ce, "C3:in3");
-ce2 <- cnxnElement("C1:in2", "C2:in1");
-ce3 <- cnxnElement("C3:in2,C4:in1");
+ce <- cnxns("C1:in1"=cnxn(), "C2:in2"=cnxn());
+ce <- add(ce, "C3:in3"=cnxn());
+ce2 <- cnxns("C1:in2", "C2:in1");
+ce3 <- cnxns();
+ce3 <- add(ce3, ce, ce2);
 if (formatVal(ce2) != "C1:in2(4), C2:in1(5)") stop("ce2 problem");
 if (formatVal(ce) != "C1:in1(1), C2:in2(2), C3:in3(3)")
     stop("ce problem");
-if (formatVal(ce3) != "C3:in2(6), C4:in1(7)") stop("ce3 problem");
+if (formatVal(ce3) != "C1:in1(6), C2:in2(7), C3:in3(8), C1:in2(9), C2:in1(10)")
+    stop("ce3 problem");
+
 
 ############################################################################
 ## CONNECTION LISTS
 ##
-## A cnxnList is a list of connections between sources and sinks.  The input
-## specifications look like this: "<gate>:<name>" where <gate> is the name of
-## a gate in the gate list and <name> is one of the inputs or outputs
+## A cnxnList is a list of connections between 'sources' (identified with a
+## character string) and 'sinks' (identified with a cnxns object).  The
+## source specifications look like this: "<gate>:<name>" where <gate> is the
+## name of a gate in the gate list and <name> is one of the inputs or outputs
 ## belonging to that gate.  e.g. "AND1:in1" and "OR3:in2" and "OR4:out".
 ##
 ## Examples:
 ##  cl <- cnxnList("AND2:out"="AND3:in1", "AND3.out"="OR1:in1,OR2:in2") or
-##  ce1 <- cnxnElement("AND3:in1")
-##  ce2 <- cnxnElement("OR1:in1,OR2:in2")
+##  ce1 <- cnxns("AND3:in1")
+##  ce2 <- cnxns("OR1:in1,OR2:in2")
 ##  cl <- cnxnList("AND2:out"=ce1, "AND3.out"=ce2) or
 ##
 cnxnList <- setClass(
@@ -491,8 +584,8 @@ cnxnList <- setClass(
         if (class(object@data) != "list")
             return("cnxnList must begin with a list.");
         if (length(object@data) == 0) return(TRUE);
-        if (sum(sapply(object@data, function(x) {class(x) == "cnxnElement"})) !=
-            length(object@data)) return("All elements must be cnxnElement");
+        if (sum(sapply(object@data, function(x) {class(x) == "cnxns"})) !=
+            length(object@data)) return("All elements must be cnxns");
         return(TRUE);
     });
 
@@ -506,8 +599,8 @@ setMethod("initialize",
                   args <- list(...);
                   for (i in 1:length(args)) {
                       if (class(args[[i]]) == "character") {
-                          newSink <- cnxnElement(args[[i]]);
-                      } else if (class(args[[i]]) == "cnxnElement") {
+                          newSink <- cnxns(args[[i]]);
+                      } else if (class(args[[i]]) == "cnxns") {
                           newSink <- args[[i]];
                       } else {
                           stop("Bad value for cnxnList sink.");
@@ -516,12 +609,12 @@ setMethod("initialize",
                       ## If the current source isn't represented, add it.
                       if ((is.null(.Object@data)) ||
                           (!(names(args)[i] %in% names(.Object@data)))) {
-                          .Object@data[[names(args)[i]]] <- newSink;
-                      } else {
-                          ## Source already represented, add it.
-                          .Object@data[[names(args)[i]]] <-
-                              add(.Object@data[[names(args)[i]]], newSink);
+                          .Object@data[[names(args)[i]]] <- cnxns();
                       }
+                      ## Source already represented, add it.
+                      .Object@data[[names(args)[i]]] <-
+                          add(.Object@data[[names(args)[i]]], newSink);
+
                   }
               }
               validObject(.Object);
@@ -529,6 +622,7 @@ setMethod("initialize",
 
           });
 
+## Doesn't seem to be much to do with 'verbose' flag for this one.
 setMethod("formatVal",
           signature="cnxnList",
           definition=function(object, ...) {
@@ -546,7 +640,12 @@ setMethod("formatVal",
                                           sep=" --> "));
                   }
               }
-              return(paste(prefix, out, sep="", collapse="\n"));
+              out <- paste(prefix, out, sep="", collapse="\n");
+              if (style == "verbose") {
+                  return(paste("data:\n", out, sep=""));
+              } else {
+                  return(out);
+              }
           });
 
 setMethod("show",
@@ -581,8 +680,13 @@ setMethod("names",
           definition=function(x) { return(names(x@data)); });
 
 ## For cnxnList, this is an 'add' method, that can accept stuff like
-## "in1"="AND1.in1,AND2.in2"...  We refer to these pairs as sources and
-## sinks.  The sinks can be multiple, separated by commas.
+## "in1"=cnxns("AND1.in1","AND2.in2"...)  We refer to these pairs as sources
+## and sinks.
+##
+## The funny logic in here is so we can add things to cnxns objects already
+## in place.  So if there's an "in1 --> C2:in2" in a list called a, we can do
+## add(a, "in1"="C3:in2") and have "C3:in2" added to the already existing set
+## of sinks for the "in1" source.
 setMethod("add",
           signature="cnxnList",
           definition=function(object, ...) {
@@ -590,26 +694,35 @@ setMethod("add",
               for (i in 1:length(args)) {
                   ## If the current source isn't represented, add it.
                   if (!(names(args)[i] %in% names(object@data))) {
-                      object@data[[names(args)[i]]] <- cnxnElement();
+                      object@data[[names(args)[i]]] <- cnxns();
+                  }
+
+                  if (class(args[[i]]) == "character") {
+                      ## If the argument is just a string, we assume it to be
+                      ## a node name.  Turn it into a cnxn and put it in a
+                      ## cnxns object.
+                      argToAdd <- cnxns(args[[i]]);
+                  } else {
+                      argToAdd <- args[[i]];
                   }
 
                   object@data[[names(args)[i]]] <-
-                      add(object@data[[ names(args)[i]]], args[[i]]);
+                      add(object@data[[ names(args)[i]]], argToAdd);
               }
               return(object);
           });
 
 ## Testing cnxnList
-cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"="OR1:in1,OR2:in2");
+cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"=cnxns("OR1:in1","OR2:in2"));
 cl <- add(cl, "AND3:out"="AND4:in2");
 cl <- add(cl, "in1"="AND1:in1");
 
 cl2 <- cnxnList("in1"=ce, "in2"=ce2);
 cl2 <- add(cl2, "in3"=ce3);
 
-if (formatVal(cl) != "AND2:out --> AND3:in1(8)\nAND3:out --> OR1:in1(9), OR2:in2(10), AND4:in2(11)\nin1 --> AND1:in1(12)") stop("cl problem");
-if (formatVal(cl2) != "in1 --> C1:in1(1), C2:in2(2), C3:in3(3)\nin2 --> C1:in2(4), C2:in1(5)\nin3 --> C3:in2(13), C4:in1(14)") stop("cl2 problem");
-
+if (formatVal(cl) != "AND2:out --> AND3:in1(14)\nAND3:out --> OR1:in1(15), OR2:in2(16), AND4:in2(18)\nin1 --> AND1:in1(20)") stop("cl problem");
+if (formatVal(cl2) != "in1 --> C1:in1(21), C2:in2(22), C3:in3(23)\nin2 --> C1:in2(24), C2:in1(25)\nin3 --> C1:in1(26), C2:in2(27), C3:in3(28), C1:in2(29), C2:in1(30)") stop("cl2 problem");
+#
 ############################################################################
 ## VALUES, LINKED WITH TYPES
 ##
