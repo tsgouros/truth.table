@@ -353,6 +353,7 @@ cnxn <- setClass(
         return(TRUE);
     })
 
+
 setMethod("initialize",
           signature="cnxn",
           definition=function(.Object, ...) {
@@ -694,10 +695,6 @@ setMethod("add",
           definition=function(object, ...) {
               args <- list(...);
               for (i in 1:length(args)) {
-                  ## If the current source isn't represented, add it.
-                  if (!(names(args)[i] %in% names(object@data))) {
-                      object@data[[names(args)[i]]] <- cnxns();
-                  }
 
                   if (class(args[[i]]) == "character") {
                       ## If the argument is just a string, we assume it to be
@@ -708,8 +705,29 @@ setMethod("add",
                       argToAdd <- args[[i]];
                   }
 
-                  object@data[[names(args)[i]]] <-
-                      add(object@data[[ names(args)[i]]], argToAdd);
+                  ## We check for uniqueness.  A source can be connected to
+                  ## multiple sinks, but not the other way around.  If you
+                  ## need to connect multiple sources to a sink, create a
+                  ## gate to add them up or multiply them or combine them in
+                  ## whatever way is appropriate and feed them to a single sink.
+                  found <- FALSE;
+                  for (sourceName in names(object@data)) {
+                      for (sinkName in names(object@data[[sourceName]]@sink)) {
+                          for (item in names(argToAdd)) {
+                              if (identical(item, sinkName)) found <- TRUE;
+                          }
+                      }
+                  }
+
+                  if (!found) {
+                      ## If the current source isn't represented, add it.
+                      if (!(names(args)[i] %in% names(object@data))) {
+                          object@data[[names(args)[i]]] <- cnxns();
+                      }
+
+                      object@data[[names(args)[i]]] <-
+                          add(object@data[[ names(args)[i]]], argToAdd);
+                  }
               }
               return(object);
           });
@@ -718,12 +736,13 @@ setMethod("add",
 cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"=cnxns("OR1:in1","OR2:in2"));
 cl <- add(cl, "AND3:out"="AND4:in2");
 cl <- add(cl, "in1"="AND1:in1");
+cl <- add(cl, "in2"="AND1:in1"); ## This should do nothing.
 
 cl2 <- cnxnList("in1"=ce, "in2"=ce2);
-cl2 <- add(cl2, "in3"=ce3);
+cl2 <- add(cl2, "in3"=ce3); ## This does nothing because duplicates ce and ce2.
 
 if (formatVal(cl) != "AND2:out --> AND3:in1(14)\nAND3:out --> OR1:in1(15), OR2:in2(16), AND4:in2(18)\nin1 --> AND1:in1(20)") stop("cl problem");
-if (formatVal(cl2) != "in1 --> C1:in1(21), C2:in2(22), C3:in3(23)\nin2 --> C1:in2(24), C2:in1(25)\nin3 --> C1:in1(26), C2:in2(27), C3:in3(28), C1:in2(29), C2:in1(30)") stop("cl2 problem");
+if (formatVal(cl2) != "in1 --> C1:in1(22), C2:in2(23), C3:in3(24)\nin2 --> C1:in2(25), C2:in1(26)") stop("cl2 problem");
 #
 ############################################################################
 ## VALUES, LINKED WITH TYPES
@@ -1809,7 +1828,7 @@ setMethod("initialize",
               .Object@nodetype <- "lower";
               .Object@fillcolor <- "white";
               .Object@fontcolor <- "black";
-              .Object@fontname <- "san-serif";
+              .Object@fontname <- "Helvetica";
               .Object@penwidth <- 1.0;
               .Object@style <- "filled";
               ## Parse constructor arguments.
@@ -3226,7 +3245,7 @@ gate.makeNodeList <- function(g, recurse=FALSE, prefix="") {
 ## compiles a table of nodes for a gate for drawing them.  If the node is
 ## atomic, this is pretty simple.  If it is composite, the function is
 ## called recursively to work out the whole structure.
-gate.nodeList <- function(g, prefix="", uid=1) {
+gate.nodeList <- function(g, prefix="", nodeID=1) {
 
     ## Start with an empty node list.
     out.nodeList <- data.frame(stringsAsFactors=FALSE);
@@ -3235,124 +3254,164 @@ gate.nodeList <- function(g, prefix="", uid=1) {
     if (g@type == "atomic") {
         ## This is an atomic gate, just return a single line with its data.
         out.nodeList <- rbind(out.nodeList,
-                              data.frame(label=prefix, id=uid,
-                                         gid=g@id, type="G",
+                              data.frame(id=nodeID, label=prefix,
+                                         color=g@color,
+                                         shape=g@shape,
+                                         type=g@nodetype,
+                                         fillcolor=g@fillcolor,
+                                         fontcolor=g@fontcolor,
+                                         fontname=g@fontname,
+                                         penwidth=g@penwidth,
+                                         style=g@style,
+                                         gid=g@id,
+                                         real=TRUE,
                                          stringsAsFactors=FALSE));
-        uid <- uid + 1;
     } else {
         ## This is a composite gate, and g@gateList is a list the gates it
         ## contains.
 
+        ## We are creating a graph node here for an imaginary thing, the
+        ## input to a composite gate.  It might be that the colors or shapes
+        ## could be adjusted here to make it clear these are artificial
+        ## constructs.
         for (iname in names(g@io@inputs)) {
             prefixName <- iname;
             if (prefix != "") prefixName <- paste0(prefix, ".", iname);
             out.nodeList <- rbind(out.nodeList,
-                                  data.frame(label=prefixName,
-                                             id=uid,
-                                             gid=g@id, type="IO",
+                                  data.frame(id=nodeID, label=prefixName,
+                                             color=g@color,
+                                             shape=g@shape,
+                                             type=g@nodetype,
+                                             fillcolor=g@fillcolor,
+                                             fontcolor=g@fontcolor,
+                                             fontname=g@fontname,
+                                             penwidth=g@penwidth,
+                                             style=g@style,
+                                             gid=g@id,
+                                             real=FALSE,
                                              stringsAsFactors=FALSE));
-            uid <- uid + 1;
+            nodeID <- nodeID + 1;
         }
 
         ## Sort through the subsidiary gates...
         for (name in names(g@gateList)) {
 
             ## ... making a nodeList for each of them
-            d <- gate.nodeList(g@gateList[[name]], prefix=name, uid=uid);
+            nodeSubList <- gate.nodeList(g@gateList[[name]], prefix=name,
+                                    nodeID=nodeID);
 
             ## The gate ID is arbitrary, just needs to be unique in this table.
-            uid <- uid + dim(d)[1];
+            nodeID <- nodeID + dim(nodeSubList)[1];
 
             if (prefix != "") {
-                for (i in 1:length(d$label)) {
-                    d$label[i] <- paste(prefix, d$label[i], sep=".");
+                for (i in 1:length(nodeSubList$label)) {
+                    nodeSubList$label[i] <-
+                        paste(prefix, nodeSubList$label[i], sep=".");
                 }
             }
-            out.nodeList <- rbind(out.nodeList, d);
+            out.nodeList <- rbind(out.nodeList, nodeSubList);
         }
 
 
+        ## See note above about artifical input nodes.  This is the same
+        ## thing.
         for (oname in names(g@io@outputs)) {
             prefixName <- oname;
             if (prefix != "") prefixName <- paste0(prefix, ".", oname);
             out.nodeList <- rbind(out.nodeList,
-                                  data.frame(label=prefixName,
-                                             id=uid, gid=g@id, type="IO",
+                                  data.frame(id=nodeID, label=prefixName,
+                                             color=g@color,
+                                             shape=g@shape,
+                                             type=g@nodetype,
+                                             fillcolor=g@fillcolor,
+                                             fontcolor=g@fontcolor,
+                                             fontname=g@fontname,
+                                             penwidth=g@penwidth,
+                                             style=g@style,
+                                             gid=g@id,
+                                             real=FALSE,
                                              stringsAsFactors=FALSE));
-            uid <- uid + 1;
+            nodeID <- nodeID + 1;
         }
     }
 
     return(out.nodeList);
 }
 
+
 ## Compile a table of edges for a gate, with 'from' and 'to' columns.  If a
 ## nodeList is included as an arg, use its 'id' column to reference the
 ## 'to' and 'from' columns created here.
-gate.edgeList <- function(g, inspect=FALSE, prefix="") {
+gate.edgeList <- function(g, inspect=FALSE, prefix="", edgeID=1) {
 
     ## Prepare an empty data frame to accumulate the connections.
     out.edgeList <- data.frame(stringsAsFactors=FALSE);
 
+    ## Atomic gates have no internal connections, so return the empty list
+    ## and begone with you.
+    if (g@type == "atomic") return(out.edgeList);
+
+    ## Utility thing for debugging.
     showList <- function(l) {
         for (i in 1:dim(l)[1])
             cat(">>", i, l[i,"id"], l[i,"fromLabel"], l[i,"toLabel"], "\n");
     }
 
-    ## Get the connections for any child nodes.
+    ## We are a compound gate.  Get the connections for any child nodes.  The
+    ## atomic children will return empty edge lists.
     for (gateName in names(g@gateList)) {
         if (inspect) cat("processing:", gateName, "\n");
 
+        prefixed <- "";
         if (prefix == "") {
-            out.edgeList <- rbind(out.edgeList,
-                                  gate.edgeList(g@gateList[[gateName]],
-                                                prefix=gateName));
+            prefixed <- gateName
         } else {
-            out.edgeList <- rbind(out.edgeList,
-                                  gate.edgeList(g@gateList[[gateName]],
-                                                prefix=paste(prefix, gateName, sep=".")));
+            prefixed <- paste(prefix, gateName, sep=".");
         }
+        edgeSubList <- gate.edgeList(g@gateList[[gateName]],
+                                     inspect=inspect,
+                                     prefix=prefixed,
+                                     edgeID=edgeID);
+        edgeID <- edgeID + dim(edgeSubList)[1];
 
+        out.edgeList <- rbind(out.edgeList, edgeSubList);
     }
 
     if (inspect) showList(out.edgeList);
 
-    for (cnxnsName in names(g@cnxnList)) {
+    ## Now add the connections internal to this compound node.
+    for (sourceName in names(g@cnxnList)) {
 
-        ## There might be multiple sinks for any connection.  We trust that
-        ## the ids were generated correctly so there is an id number for
-        ## each connection sink.
-        sinkNames <- names(g@cnxnList[[cnxnsName]]);
-        sinkIDs <- c();
-        sinkWts <- c();
-        for (name in sinkNames) {
-            sinkIDs <- c(sinkIDs, g@cnxnList[[cnxnsName]][[name]]@id);
-            sinkWts <- c(sinkWts, g@cnxnList[[cnxnsName]][[name]]@weight);
+        ## There might be multiple sinks for any item in the cnxnList.
+        for (sinkName in names(g@cnxnList[[sourceName]])) {
+            prefixedSource <- sourceName;
+            prefixedSink <- sinkName;
+            if (prefix != "") {
+                prefixedSource <- paste(prefix, sourceName, sep=".");
+                prefixedSink <- paste(prefix, sinkName, sep=".");
+            }
+
+            out.edgeList <-
+                rbind(out.edgeList,
+                      data.frame(id=edgeID,
+                                 fromLabel=prefixedSource,
+                                 toLabel=prefixedSink,
+                                 weight=as.numeric(g@cnxnList[[sourceName]][[sinkName]]@weight),
+                                 color=g@cnxnList[[sourceName]][[sinkName]]@color,
+                                 eid=g@cnxnList[[sourceName]][[sinkName]]@id,
+                                 stringsAsFactors=FALSE));
+            edgeID <- edgeID + 1;
         }
-
-        if (prefix == "") {
-            d <- data.frame(id=as.numeric(sinkIDs),
-                            fromLabel=cnxnsName,
-                            toLabel=sinkNames,
-                            ##weight=as.numeric(sinkWts),
-                            stringsAsFactors=FALSE);
-        } else {
-            d <- data.frame(id=as.numeric(sinkIDs),
-                            fromLabel=paste(prefix, cnxnsName, sep="."),
-                            toLabel=paste(prefix, sinkNames, sep="."),
-                            ##weight=as.numeric(sinkWts),
-                            stringsAsFactors=FALSE);
-        }
-
-        out.edgeList <- rbind(out.edgeList, d);
-        if (inspect) showList(out.edgeList);
-
     }
+    if (inspect) showList(out.edgeList);
     return(out.edgeList);
 }
 
+gate.filterEdgeList <- function(edgeList, nodeList) {
+
     ## A little function to get rid of the suffix, if this is a compound
-    ## string, like 'a.b.c'.  Strings without a '.' are untouched.
+    ## string, like 'a.b.c'.  Strings without a '.' are untouched.  Used by
+    ## findOriginID, below.
     dropLast <- function(label) {
         tmpArray <- strsplit(label, "\\.")[[1]];
         if (length(tmpArray) > 1) {
@@ -3365,7 +3424,7 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="") {
     ## We go backwards because there's no forking in that direction.  Once
     ## these are found, I believe the forwards links left over are
     ## redundant.
-    findOriginId <- function(fromString, edgeList, nodeList) {
+    findOriginID <- function(fromString, edgeList, nodeList) {
 
         if (length(fromString) == 0) return(0);
 
@@ -3373,7 +3432,7 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="") {
         if (sum(grepl(paste0("^", fromString, "$"), nodeList$label))) {
 
             ## If we're here, we've found the string in the node list...
-            fromLoc <- grep(paste0("^", fromString), nodeList$label);
+            fromLoc <- grep(paste0("^", fromString, "$"), nodeList$label);
 
             ## So return the corresponding index.
             return(nodeList$id[fromLoc]);
@@ -3403,6 +3462,26 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="") {
             }
         }
     }
+
+    for (fl in edgeList$toLabel) {
+        cat(findOriginID(fl, edgeList, nodeList), "\n");
+    }
+
+    newEdgeList <- edgeList;
+
+    return(newEdgeList);
+}
+
+## This is easier.  Just delete the rows with nodeList$real=FALSE.  These
+## represent the imaginary nodes making up the specified inputs and outputs
+## of compound gates.
+gate.filterNodeList <- function(nodeList) {
+
+    newNodeList <- nodeList;
+
+    return(newNodeList);
+}
+
 
 
 
