@@ -1721,7 +1721,7 @@ gate <- setClass(
             gateList="list",
             cnxnList="cnxnList",
             color="character",
-            shape="numeric",
+            shape="character",
             ## These are generated.
             stateList="gateIOList",
             transform="function",
@@ -1751,8 +1751,8 @@ gate <- setClass(
         if (class(object@color) != "character")
             return("Express color as a hex code or X11 word.");
 
-        if (class(object@shape) != "numeric")
-            return("Shape is numeric, please.");
+        if (class(object@shape) != "character")
+            return("Shape is character, please.");
 
         if (! ((class(object@type) == "character") &&
                ((object@type == "atomic") || (object@type == "compound"))))
@@ -1776,7 +1776,7 @@ setMethod("initialize",
               .Object@gateList  <-  list();
               .Object@cnxnList  <-  cnxnList();
               .Object@color <- "gray";
-              .Object@shape <- 1;
+              .Object@shape <- "circle";
 
               ## Parse constructor arguments.
               args <- list(...);
