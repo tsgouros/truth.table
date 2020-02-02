@@ -1727,6 +1727,7 @@ gate <- setClass(
             cnxnList="cnxnList",
             color="character",
             shape="character",
+            nodetype="character",
             fillcolor="character",
             fontcolor="character",
             fontname="character",
@@ -1768,6 +1769,24 @@ gate <- setClass(
                ((object@type == "atomic") || (object@type == "compound"))))
             return("Type must be 'atomic' or 'compound'.");
 
+        if (class(object@nodetype) != "character")
+            return("Nodetype must be character, please.");
+
+        if (class(object@fillcolor) != "character")
+            return("Fillcolor must be character, please.");
+
+        if (class(object@fontcolor) != "character")
+            return("Fontcolor must be character, please.");
+
+        if (class(object@fontname) != "character")
+            return("Fontname must be character, please.");
+
+        if (class(object@penwidth) != "numeric")
+            return("Penwidth must be numeric, please.");
+
+        if (class(object@style) != "character")
+            return("Style must be character, please.");
+
         return(TRUE);
     });
 
@@ -1787,6 +1806,7 @@ setMethod("initialize",
               .Object@cnxnList  <-  cnxnList();
               .Object@color <- "gray";
               .Object@shape <- "circle";
+              .Object@nodetype <- "lower";
               .Object@fillcolor <- "white";
               .Object@fontcolor <- "black";
               .Object@fontname <- "san-serif";
@@ -2049,13 +2069,14 @@ setMethod("show",
 setMethod("showShape",
           signature="gate",
           definition=function(object) {
-              cat("color    = ", object@color, "\n");
+              cat("color    = ", object@color, "\n", sep="");
               cat("shape    = ", object@shape, "\n", sep="");
               cat("fillcolor= ", object@fillcolor, "\n", sep="");
               cat("fontcolor= ", object@fontcolor, "\n", sep="");
               cat("fontname = ", object@fontname, "\n", sep="");
               cat("penwidth = ", object@penwidth, "\n", sep="");
               cat("style    = ", object@style, "\n", sep="");
+              cat("nodetype = ", object@nodetype, "\n", sep="");
           });
 
 setMethod("describe",
