@@ -140,20 +140,20 @@ setMethod("formatVal",
           definition=function(object, style) {
               if (object@baseType == "symbol") {
                   if (style == "verbose") {
-                      return(paste("baseType=", object@baseType, ": range=",
-                                   paste(object@range, collapse="/"), sep=""));
+                      return(paste0("baseType=", object@baseType, ": range=",
+                                   paste0(object@range, collapse="/")));
                   } else {
-                      return(paste(object@baseType, ": ",
-                                   paste(object@range, collapse="/"), sep=""));
+                      return(paste0(object@baseType, ": ",
+                                    paste0(object@range, collapse="/")));
                   }
               } else {
                   if (style == "verbose") {
-                      return(paste("baseType=", object@baseType,
-                                   ": min: ", object@min,
-                                   ", max: ", object@max, sep=""));
+                      return(paste0("baseType=", object@baseType,
+                                    ": min: ", object@min,
+                                    ", max: ", object@max));
                   } else {
-                      return(paste(object@baseType, ": min: ", object@min,
-                                   ", max: ", object@max, sep=""));
+                      return(paste0(object@baseType, ": min: ", object@min,
+                                    ", max: ", object@max));
                   }
               }
           })
@@ -266,19 +266,19 @@ setMethod("formatVal",
                   out <- c("data:");
                   for (item in 1:length(object)) {
                       out <- c(out,
-                               paste("[[", item, "]] \"",
+                               paste0("[[", item, "]] \"",
                                      names(object)[item], "\" (",
                                      formatVal(object[[item]], style="short"),
-                                     ")", sep=""));
+                                     ")"));
                   }
               } else {
                   for (name in names(object)) {
                       out <- c(out,
-                               paste(name, " (",
-                                     formatVal(object[[name]]), ")", sep=""));
+                               paste0(name, " (",
+                                      formatVal(object[[name]]), ")"));
                   }
               }
-              return(paste(out, collapse="\n"));
+              return(paste0(out, collapse="\n"));
           })
 
 setMethod("show",
@@ -382,13 +382,14 @@ setMethod("formatVal",
           definition=function(object, style) {
               out <- "";
               if (style == "verbose") {
-                  out <- paste("id: ", object@id,
-                               ", color: (", paste(object@color, collapse=", "),
-                               "), weight: ", object@weight, sep="");
+                  out <- paste0("id: ", object@id,
+                                ", color: (",
+                                paste0(object@color, collapse=","),
+                                "), weight: ", object@weight);
               } else {
-                  out <- paste(object@id,
-                               " (", paste(object@color, collapse=","),
-                               "),", object@weight, sep="");
+                  out <- paste0(object@id,
+                                " (", paste0(object@color, collapse=","),
+                                "),", object@weight);
               }
               return(out);
           });
@@ -465,26 +466,25 @@ setMethod("formatVal",
                   if (length(object@sink) > 0) {
                       for (i in 1:length(object@sink)) {
                           out <- c(out,
-                                   paste("[[", i, "]] ",
-                                         names(object@sink)[i],
-                                         "(", formatVal(object@sink[[i]],
-                                                        style="verbose"),
-                                         ")", sep=""));
+                                   paste0("[[", i, "]] ",
+                                          names(object@sink)[i],
+                                          "(", formatVal(object@sink[[i]],
+                                                         style="verbose"),
+                                          ")"));
                       }
                   }
-                  out <- paste(out, collapse="\n");
-                  out <- paste("sink:\n", out,
-                               sep="");
+                  out <- paste0(out, collapse="\n");
+                  out <- paste0("sink:\n", out);
               } else {
                   out <- c();
                   if (length(object@sink) > 0) {
                       for (name in names(object@sink)) {
                           out <- c(out,
-                                   paste(name, "(", object@sink[[name]]@id,
-                                         ")", sep=""));
+                                   paste0(name, "(", object@sink[[name]]@id,
+                                          ")"));
                       }
                   }
-                  out <- paste(out, collapse=", ");
+                  out <- paste0(out, collapse=", ");
               }
               return(out);
           });
@@ -640,9 +640,9 @@ setMethod("formatVal",
                                           sep=" --> "));
                   }
               }
-              out <- paste(prefix, out, sep="", collapse="\n");
+              out <- paste0(prefix, out, collapse="\n");
               if (style == "verbose") {
-                  return(paste("data:\n", out, sep=""));
+                  return(paste0("data:\n", out));
               } else {
                   return(out);
               }
@@ -863,22 +863,41 @@ setMethod("formatVal",
                   prefix <- args$prefix;
               }
 
-              if (object@type@baseType == "symbol") {
-                  if (object@symVal == "") {
-                      out <- "[empty]";
+              if (style == "verbose") {
+
+                  if (object@type@baseType == "symbol") {
+                      if (object@symVal == "") {
+                          out <- "symVal= [empty]";
+                      } else {
+                          out <- paste0(prefix, "symVal= ",
+                                        object@symVal);
+                      }
                   } else {
-                      out <- object@symVal;
+                      if (is.nan(object@numVal)) {
+                          out <- "numVal= [empty]";
+                      } else {
+                          out <- paste0(prefix, "numVal= ",
+                                        object@numVal);
+                      }
                   }
-                  return(paste(out, " (", formatVal(object@type),
-                               ")", sep=""));
+                  return(paste0(out, "\n", prefix,
+                                formatVal(object@type, style="verbose")));
               } else {
-                  if (is.nan(object@numVal)) {
-                      out <- "[empty]";
+
+                  if (object@type@baseType == "symbol") {
+                      if (object@symVal == "") {
+                          out <- "[empty]";
+                      } else {
+                          out <- object@symVal;
+                      }
                   } else {
-                      out <- paste(object@numVal);
+                      if (is.nan(object@numVal)) {
+                          out <- "[empty]";
+                      } else {
+                          out <- paste(object@numVal);
+                      }
                   }
-                  return(paste(out, " (", formatVal(object@type),
-                               ")", sep=""));
+                  return(paste0(out, " (", formatVal(object@type), ")"));
               }
           });
 
@@ -1015,30 +1034,64 @@ setMethod("formatVal",
                   prefix <- args$prefix;
               }
 
-              outstr <- "";
-              out <- c();
-              if (length(object@inputs) > 0) {
-                  for (i in 1:length(object@inputs)) {
-                      out <- c(out, paste(names(object@inputs)[i], "=",
-                                          formatVal(object@inputs[[i]]),
-                                          sep=""));
+              if (style == "verbose") {
+
+                  outstr <- "";
+                  out <- c();
+                  if (length(object@inputs) > 0) {
+                      for (i in 1:length(object@inputs)) {
+                          out <- c(out, paste0(prefix, "  ",
+                                               names(object@inputs)[i], ": ",
+                                               formatVal(object@inputs[[i]])));
+                      }
+                      outstr <- paste0(prefix, "inputs:\n",
+                                      paste0(out, collapse="\n"));
                   }
-                  outstr <- paste(prefix, "I: ",
-                                  paste(out, collapse=", "), sep="");
-              }
 
-              if (length(object@outputs) == 0) return(outstr);
-              if (outstr != "") outstr <- paste(outstr, "\n", sep="");
+                  if (length(object@outputs) == 0) return(outstr);
+                  if (outstr != "") outstr <- paste0(outstr, "\n");
 
-              out <- c();
-              for (i in 1:length(object@outputs)) {
-                  out <- c(out, paste(names(object@outputs)[i], "=",
-                                      formatVal(object@outputs[[i]]),
-                                      sep=""));
+                  out <- c();
+                  for (i in 1:length(object@outputs)) {
+                      out <- c(out, paste0(prefix, "  ",
+                                           names(object@outputs)[i], ": ",
+                                           formatVal(object@outputs[[i]])));
+                  }
+                  outstr <- paste0(outstr, prefix, "outputs:\n",
+                                   paste0(out, collapse="\n"));
+                  return(outstr);
+
+              } else {
+
+                  ## If either the input or output list is too long, use
+                  ## 'verbose' which formats the gvals on separate lines.
+                  if ((length(object@inputs) > 5) ||
+                      (length(object@inputs) > 5))
+                      return(formatVal(object, style="verbose"));
+
+                  outstr <- "";
+                  out <- c();
+                  if (length(object@inputs) > 0) {
+                      for (i in 1:length(object@inputs)) {
+                          out <- c(out, paste0(names(object@inputs)[i], "=",
+                                               formatVal(object@inputs[[i]])));
+                      }
+                      outstr <- paste0(prefix, "I: ",
+                                       paste0(out, collapse=", "));
+                  }
+
+                  if (length(object@outputs) == 0) return(outstr);
+                  if (outstr != "") outstr <- paste0(outstr, "\n");
+
+                  out <- c();
+                  for (i in 1:length(object@outputs)) {
+                      out <- c(out, paste0(names(object@outputs)[i], "=",
+                                           formatVal(object@outputs[[i]])));
+                  }
+                  outstr <- paste0(outstr, prefix, "O: ",
+                                   paste0(out, collapse=", "));
+                  return(outstr);
               }
-              outstr <- paste(outstr, prefix, "O: ",
-                              paste(out, collapse=", "), sep="");
-              return(outstr);
           });
 
 setMethod("show",
@@ -1125,9 +1178,15 @@ setMethod("clearOutputs",
               return(object);
           });
 
-## A convenience function.
+## A convenience function.  We do some guessing of a node's purpose by
+## looking at its name.  If it's not an output, we assume it's an input.  So
+## outputs start with 'o' or 'r', or 'out' or 'res'.  This is only for
+## convenience in the shortened version of setVal().  You can always specify
+## which is output and which is input explicitly.  The only real restrictions
+## are don't name anything 'replace' or 'type' or some flag's name.  If you
+## do, you'll be sorry, though I can't predict how, exactly.
 isOutputName <- function(vname) {
-    return(grepl("out|res", vname));
+    return(grepl("out|res|^o|^r", vname));
 }
 
 ## Call like this: g <- setVal(g, "in1"="1").
@@ -1327,11 +1386,11 @@ setMethod("formatVal",
               out <- c();
 
               ## We want to get the 'this' element first.
-              outstr <- paste(prefix, "this:\n", sep="");
-              outstr <- paste(outstr,
-                              formatVal(object@data[["this"]],
-                                        prefix=paste(prefix, " ", sep="")),
-                              sep="");
+              outstr <- paste0(prefix, "this:\n");
+              outstr <- paste0(outstr,
+                               formatVal(object@data[["this"]],
+                                         prefix=paste0(prefix, " "),
+                                         style=style));
 
               ## Do the rest of the elements in whatever order they are
               ## stored.
@@ -1339,14 +1398,14 @@ setMethod("formatVal",
                   ## Skip 'this' element.
                   if (names(object@data)[i] == "this") next;
 
-                  outstr <- paste(outstr, "\n", prefix, "\n",
+                  outstr <- paste0(outstr, "\n", prefix, "\n",
                                   prefix, names(object@data)[i],
-                                  ":\n", sep="");
+                                  ":\n");
                   outstr <-
-                      paste(outstr,
-                            formatVal(object@data[[names(object@data)[i] ]],
-                                      prefix=paste(prefix, " ", sep="")),
-                            sep="");
+                      paste0(outstr,
+                             formatVal(object@data[[names(object@data)[i] ]],
+                                       prefix=paste0(prefix, " "),
+                                       style=style));
               }
 
               return(outstr);
@@ -1507,7 +1566,7 @@ setMethod("subset",
                   target <- substr(target, 1, (nchar(target) - 1));
 
               for (name in names(object@data)) {
-                  if (grepl(paste("^", target, sep=""), name)) {
+                  if (grepl(paste0("^", target), name)) {
                       newName <- sub(target, "", name);
                       if (newName == "") {
                           newName <- "this";
@@ -1730,7 +1789,7 @@ setMethod("initialize",
               ## partial matches to the input args.  This allows us to make
               ## it work even if the names are not spelled out completely.
               for (name in names(args)) {
-                  slotIndex <- grepl(paste("^", name, sep=""),
+                  slotIndex <- grepl(paste0("^", name),
                                      slotNames("gate"));
                   if (sum(slotIndex) == 1) {
                       slotIndex <- which(slotIndex);
@@ -1779,7 +1838,7 @@ setMethod("initialize",
                                       formatVal(subset(argList,
                                                        expr=gateName),
                                                 prefix=prefix),
-                                      "\n", sep="");
+                                      "\n");
                               }
 
                               gate <- .Object@gateList[[gateName]];
@@ -1928,34 +1987,38 @@ setMethod("formatVal",
               if ("prefix" %in% names(args)) {
                   prefix <- args$prefix;
               }
-
               ## Type and ID
-              outstr <- paste(prefix, object@type, " (", object@id, ")", sep="");
+              if (style == "verbose") {
+                  outstr <- paste0(prefix,
+                                   "type: ", object@type,
+                                   ", id: ", object@id);
+              } else {
+                  outstr <- paste0(prefix, object@type, " (", object@id, ")");
+              }
 
               ## The io list.
-              outstr <- paste(outstr, "\n", prefix, "io:\n", sep="");
-              outstr <- paste(outstr, formatVal(object@io,
-                                                prefix=paste(prefix, "  ",
-                                                             sep="")),
-                              sep="");
+              outstr <- paste0(outstr, "\n", prefix, "io:\n");
+              outstr <- paste0(outstr, formatVal(object@io,
+                                                prefix=paste0(prefix, "  "),
+                                                style=style));
 
               ## Any subsidiary gates, for a compound gate.
               if (length(object@gateList) > 0) {
-                  outstr <- paste(outstr, "\n", prefix, "gates:\n", sep="");
+                  outstr <- paste0(outstr, "\n", prefix, "gateList:\n");
                   for (name in names(object@gateList)) {
-                      outstr <- paste(outstr, prefix, name, ":\n",
-                                      formatVal(object@gateList[[name]],
-                                                prefix=paste(prefix,
-                                                             "| ", sep="")),
-                                      "\n", sep="");
+                      outstr <- paste0(outstr, prefix, name, ":\n",
+                                       formatVal(object@gateList[[name]],
+                                                 prefix=paste0(prefix, "| "),
+                                                 style=style),
+                                      "\n");
                   }
 
                   ## Also the connections.
-                  outstr <- paste(outstr, prefix, "connections:\n", sep="");
-                  outstr <- paste(outstr, formatVal(object@cnxnList,
-                                                    prefix=paste(prefix, "  ",
-                                                                 sep="")),
-                                  sep="");
+                  outstr <- paste0(outstr, prefix, "cnxnList:\n");
+                  outstr <- paste0(outstr,
+                                   formatVal(object@cnxnList,
+                                             prefix=paste0(prefix, "  "),
+                                             style=style));
               }
 
               ## We ignore the other slots, at least for now.  Mostly the
@@ -2017,8 +2080,8 @@ io=gateIO(i=list("in1"=gval(type=binary), "in2"=gval(type=binary)),
           o=list("out"=gval(type=binary))));
 
 g.comp <- gate(gateList=list("AND1"=g.and, "AND2"=g.and, "XOR1"=g.xor),
-               cnxn=cnxnList("in1"="AND1:in1,AND2:in2",
-                             "in2"="AND2:in1,AND1:in2",
+               cnxn=cnxnList("in1"=cnxns("AND1:in1", "AND2:in2"),
+                             "in2"=cnxns("AND2:in1", "AND1:in2"),
                              "AND1:out"="XOR1:in1",
                              "AND2:out"="XOR1:in2",
                              "XOR1:out"="out"),
@@ -2028,10 +2091,10 @@ g.comp <- gate(gateList=list("AND1"=g.and, "AND2"=g.and, "XOR1"=g.xor),
 
 g.comp2 <- gate(gateList=list("AND1"=g.and, "AND2"=g.and, "XOR1"=g.xor,
                               "C1"=g.comp),
-                cnxn=cnxnList("in1"="AND1:in1,AND2:in2",
-                              "in2"="AND2:in1,AND1:in2",
+                cnxn=cnxnList("in1"=cnxns("AND1:in1", "AND2:in2"),
+                              "in2"=cnxns("AND2:in1", "AND1:in2"),
                               "AND1:out"="XOR1:in1",
-                              "AND2:out"="XOR1:in2,C1:in2",
+                              "AND2:out"=cnxns("XOR1:in2", "C1:in2"),
                               "XOR1:out"="C1:in1",
                               "C1:out"="out"),
                 io=gateIO(i=list("in1"=gval(type=binary),
@@ -2163,6 +2226,11 @@ setMethod("formatVal",
               }
 
               outstr <- "";
+              if (style == "verbose") {
+                  outstr <- paste0(outstr, "type: ", object@type, " (",
+                                   formatVal(object@keyVal@type), ")\n");
+              }
+
               if (object@type == "discrete") {
                   for (i in 1:length(object@vals)) {
                       if (count) {
@@ -2175,8 +2243,7 @@ setMethod("formatVal",
                           }
                       }
                       outstr <- paste0(outstr, object@vals[[i]],
-                                       " (", P, ") ",
-                                       collapse="");
+                                       " (", P, ") ");
                   }
               } else {
                   outstr <- paste0(outstr, "[", collapse="");
@@ -2190,10 +2257,8 @@ setMethod("formatVal",
                               P <- format(probs(object)[i], digits=4);
                           }
                       }
-                      outstr <- paste0(outstr,
-                                       object@vals[[i]],
-                                       " (", P, ") ",
-                                       collapse="");
+                      outstr <- paste0(outstr, object@vals[[i]],
+                                       " (", P, ") ");
                   }
                   outstr <- paste0(outstr,
                                    object@vals[[length(object@vals)]],
@@ -2221,6 +2286,7 @@ setMethod("showCount",
               cat(formatVal(object, count=TRUE), "\n");
           });
 
+## Returns the probabilities implied by the outcome object.
 setMethod("probs",
           signature="outcome",
           definition=function(object, ...) {
@@ -2231,6 +2297,9 @@ setMethod("probs",
               }
           });
 
+## Returns an estimate of the number of bits of information in the variable
+## recorded by the outcome object.  Obviously for a continuous variable this
+## is a pretty crude estimate.
 setMethod("info",
           signature="outcome",
           definition=function(object, ...) {
@@ -2244,7 +2313,9 @@ setMethod("info",
               return(-sum(sapply(probs(object), xlogx)));
           });
 
-
+## Use this function to add a result to the record kept in a given outcome
+## object.  See the tests below for examples.  The input can be a raw value
+## or a gval.  There is type checking using the outcome object's keyVal@type.
 setMethod("record",
           signature="outcome",
           definition=function(object, inVal, inspect=FALSE) {
@@ -2481,30 +2552,55 @@ setMethod("formatVal",
                   count <- args$count;
               }
 
-              outstr <- "";
-              out <- c();
-              if (length(object@inputs) > 0) {
-                  for (i in 1:length(object@inputs)) {
-                      out <- c(out, paste(names(object@inputs)[i], "=",
-                                          formatVal(object@inputs[[i]]),
-                                          sep=""));
+              if (style == "verbose") {
+                  outstr <- "";
+                  out <- c();
+                  if (length(object@inputs) > 0) {
+                      for (i in 1:length(object@inputs)) {
+                          out <- c(out, paste0(prefix, "  ",
+                                               names(object@inputs)[i], ": ",
+                                               formatVal(object@inputs[[i]])));
+                      }
+                      outstr <- paste0(prefix, "inputs:\n",
+                                       paste0(out, collapse="\n"));
                   }
-                  outstr <- paste(prefix, "I: ",
-                                  paste(out, collapse=", "), sep="");
-              }
+                  if (outstr != "") outstr <- paste0(outstr, "\n");
 
-              if (outstr != "") outstr <- paste(outstr, "\n", sep="");
-
-              out <- c();
-              if (length(object@outcomes) > 0) {
-                  for (i in 1:length(object@outcomes)) {
-                      out <- c(out, paste(names(object@outcomes)[i], "=",
-                                          formatVal(object@outcomes[[i]],
-                                                    count=count),
-                                          sep=""));
+                  out <- c();
+                  if (length(object@outcomes) > 0) {
+                      for (i in 1:length(object@outcomes)) {
+                          out <- c(out, paste0(prefix, "  ",
+                                               names(object@outcomes)[i], ": ",
+                                               formatVal(object@outcomes[[i]],
+                                                         count=count)));
+                      }
+                      outstr <- paste0(outstr, prefix, "outcomes:\n",
+                                       paste0(out, collapse="\n"));
                   }
-                  outstr <- paste(outstr, prefix, "O: ",
-                                  paste(out, collapse=", "), sep="");
+
+              } else {
+                  out <- c();
+                  if (length(object@inputs) > 0) {
+                      for (i in 1:length(object@inputs)) {
+                          out <- c(out, paste0(names(object@inputs)[i], "=",
+                                               formatVal(object@inputs[[i]])));
+                      }
+                      outstr <- paste0(prefix, "I: ",
+                                       paste0(out, collapse=", "));
+                  }
+
+                  if (outstr != "") outstr <- paste0(outstr, "\n");
+
+                  out <- c();
+                  if (length(object@outcomes) > 0) {
+                      for (i in 1:length(object@outcomes)) {
+                          out <- c(out, paste0(names(object@outcomes)[i], "=",
+                                               formatVal(object@outcomes[[i]],
+                                                         count=count)));
+                      }
+                      outstr <- paste0(outstr, prefix, "O: ",
+                                       paste0(out, collapse=", "));
+                  }
               }
 
               return(outstr);
@@ -2565,7 +2661,7 @@ setMethod("record",
 gp <- gateProbs(i=list("in1"=gval("0"),"in2"=gval("1")),
                 o=list("out"=outcome(gval(type=binary),c=c(15,10))))
 if (formatVal(gp) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.6) 1 (0.4) ")
-     stop("gp problem.");
+    stop("gp problem.");
 
 gp <- record(gp, gateIO(i=list("in1"=gval("0"),"in2"=gval("1")),o=list("out"=gval("1",type=binary))));
 if (formatVal(gp) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0.5769) 1 (0.4231) ")
@@ -2866,7 +2962,7 @@ setMethod("export",
                       for (i in 1:outc@Nbins) {
                           cnames <- c(cnames,
                                       paste(outName,
-                                            paste("B", i, sep=""),
+                                            paste0("B", i),
                                             sep="."));
                       }
                   }
@@ -2963,9 +3059,9 @@ gate.exportGraph <- function(g, name="gate") {
     graphNodes <- gate.exportGraphNodes(g, name);
     for (i in 1:length(graphNodes)) {
         if (graphNodes[[i]]$style == "terminal") {
-            out <- paste(out, "node [shape=circle, style=filled, fillcolor=lightblue, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n", sep="");
+            out <- paste0(out, "node [shape=circle, style=filled, fillcolor=lightblue, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n");
         } else {
-            out <- paste(out, "node [shape=triangle, orientation=270, style=filled, fillcolor=yellow, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n", sep="");
+            out <- paste0(out, "node [shape=triangle, orientation=270, style=filled, fillcolor=yellow, fontname=Helvetica, fontsize=10, label=\"", graphNodes[[i]]$label, "\"] \"", names(graphNodes)[i], "\";\n");
         }
     }
 
@@ -2973,18 +3069,18 @@ gate.exportGraph <- function(g, name="gate") {
         for (i in 1:length(g@cnxnList)) {
             for (j in 1:length(g@cnxnList[[i]])) {
                 src <- strsplit(names(g@cnxnList)[i], ":")[[1]];
-                sink <- strsplit(g@cnxnList[[i]][[j]], ":")[[1]];
+                sink <- strsplit(names(g@cnxnList[[i]])[j], ":")[[1]];
 
-                out <- paste(out, src[1], ":e -> ", sink[1], sep="");
+                out <- paste0(out, src[1], ":e -> ", sink[1]);
                 if (length(src) > 1) {
                     if (length(sink) > 1) {
-                        out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"vee\", taillabel=\"", src[2],
-                                     "\",headlabel=\"", sink[2], "\"]\n", sep="");
+                        out <- paste0(out, " [fontname=Helvetica, fontsize=8, arrowType=\"vee\", taillabel=\"", src[2],
+                                     "\",headlabel=\"", sink[2], "\"]\n");
                     } else {
-                        out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", taillabel=\"", src[2], "\"]\n", sep="");
+                        out <- paste0(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", taillabel=\"", src[2], "\"]\n");
                     }
                 } else {
-                    out <- paste(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", headlabel=\"", sink[2], "\"]\n", sep="");
+                    out <- paste0(out, " [fontname=Helvetica, fontsize=8, arrowType=\"open\", headlabel=\"", sink[2], "\"]\n");
                 }
             }
         }
@@ -3091,27 +3187,28 @@ gate.nodeList <- function(g, prefix="", uid=1) {
     ## Start with an empty node list.
     out.nodeList <- data.frame(stringsAsFactors=FALSE);
 
-    ## If we're at the top level, include the inputs as nodes, because
-    ## we'll probably want to draw them, too.
-    if (prefix == "") {
-        for (iname in names(g$inputTypes)) {
-            out.nodeList <- rbind(out.nodeList,
-                                  data.frame(label=iname,id=uid,
-                                             gid=g@id, type="IO",
-                                             stringsAsFactors=FALSE));
-            uid <- uid + 1;
-        }
-    }
-
     ## Check gate type
     if (g@type == "atomic") {
         ## This is an atomic gate, just return a single line with its data.
         out.nodeList <- rbind(out.nodeList,
-                              data.frame(label=prefix, id=uid, gid=g$id, type="G",
+                              data.frame(label=prefix, id=uid,
+                                         gid=g@id, type="G",
                                          stringsAsFactors=FALSE));
         uid <- uid + 1;
     } else {
-        ## This is a composite gate, and g$gateList is a list of other gates.
+        ## This is a composite gate, and g@gateList is a list the gates it
+        ## contains.
+
+        for (iname in names(g@io@inputs)) {
+            prefixName <- iname;
+            if (prefix != "") prefixName <- paste0(prefix, ".", iname);
+            out.nodeList <- rbind(out.nodeList,
+                                  data.frame(label=prefixName,
+                                             id=uid,
+                                             gid=g@id, type="IO",
+                                             stringsAsFactors=FALSE));
+            uid <- uid + 1;
+        }
 
         ## Sort through the subsidiary gates...
         for (name in names(g@gateList)) {
@@ -3129,17 +3226,15 @@ gate.nodeList <- function(g, prefix="", uid=1) {
             }
             out.nodeList <- rbind(out.nodeList, d);
         }
-    }
 
-    ## If we're at the top level, include the outputs as nodes, because
-    ## we'll probably want to draw them, too.
-    if (prefix == "") {
 
-        for (oname in g$outList) {
+        for (oname in names(g@io@outputs)) {
+            prefixName <- oname;
+            if (prefix != "") prefixName <- paste0(prefix, ".", oname);
             out.nodeList <- rbind(out.nodeList,
-                                  data.frame(label=oname, id=uid,
-                                             gid=g$id, type="IO",
-                                         stringsAsFactors=FALSE));
+                                  data.frame(label=prefixName,
+                                             id=uid, gid=g@id, type="IO",
+                                             stringsAsFactors=FALSE));
             uid <- uid + 1;
         }
     }
@@ -3161,16 +3256,16 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="") {
     }
 
     ## Get the connections for any child nodes.
-    for (gateName in names(g$gateList)) {
+    for (gateName in names(g@gateList)) {
         if (inspect) cat("processing:", gateName, "\n");
 
         if (prefix == "") {
             out.edgeList <- rbind(out.edgeList,
-                                  gate.edgeList(g$gateList[[gateName]],
+                                  gate.edgeList(g@gateList[[gateName]],
                                                 prefix=gateName));
         } else {
             out.edgeList <- rbind(out.edgeList,
-                                  gate.edgeList(g$gateList[[gateName]],
+                                  gate.edgeList(g@gateList[[gateName]],
                                                 prefix=paste(prefix, gateName, sep=".")));
         }
 
@@ -3178,28 +3273,30 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="") {
 
     if (inspect) showList(out.edgeList);
 
-    for (connectName in names(g$connectionList)) {
+    for (cnxnsName in names(g@cnxnList)) {
 
         ## There might be multiple sinks for any connection.  We trust that
         ## the ids were generated correctly so there is an id number for
         ## each connection sink.
-        sinkNames <- strsplit(g$connectionList[[connectName]]$sink, ",")[[1]];
-        sinkIds <- strsplit(g$connectionList[[connectName]]$id, ",")[[1]];
-
-        if (length(sinkNames) != length(sinkIds)) {
-            cat("The connectionList has inconsistent connection IDs\n");
-            stop();
+        sinkNames <- names(g@cnxnList[[cnxnsName]]);
+        sinkIDs <- c();
+        sinkWts <- c();
+        for (name in sinkNames) {
+            sinkIDs <- c(sinkIDs, g@cnxnList[[cnxnsName]][[name]]@id);
+            sinkWts <- c(sinkWts, g@cnxnList[[cnxnsName]][[name]]@weight);
         }
 
         if (prefix == "") {
-            d <- data.frame(id=as.numeric(sinkIds),
-                            fromLabel=connectName,
+            d <- data.frame(id=as.numeric(sinkIDs),
+                            fromLabel=cnxnsName,
                             toLabel=sinkNames,
+                            ##weight=as.numeric(sinkWts),
                             stringsAsFactors=FALSE);
         } else {
-            d <- data.frame(id=as.numeric(sinkIds),
-                            fromLabel=paste(prefix, connectName, sep="."),
+            d <- data.frame(id=as.numeric(sinkIDs),
+                            fromLabel=paste(prefix, cnxnsName, sep="."),
                             toLabel=paste(prefix, sinkNames, sep="."),
+                            ##weight=as.numeric(sinkWts),
                             stringsAsFactors=FALSE);
         }
 
@@ -3209,10 +3306,6 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="") {
     }
     return(out.edgeList);
 }
-
-## Sorts through the edge list and outputs an edge list that references the
-## id field of the node list.
-gate.simplify.edgeList <- function(edges, nodes) {
 
     ## A little function to get rid of the suffix, if this is a compound
     ## string, like 'a.b.c'.  Strings without a '.' are untouched.
@@ -3224,6 +3317,55 @@ gate.simplify.edgeList <- function(edges, nodes) {
             return(label);
         }
     }
+    ## A little recursive function to follow the 'from' nodes backwards.
+    ## We go backwards because there's no forking in that direction.  Once
+    ## these are found, I believe the forwards links left over are
+    ## redundant.
+    findOriginId <- function(fromString, edgeList, nodeList) {
+
+        if (length(fromString) == 0) return(0);
+
+        ## grepl returns an array of T/F. "sum" makes an ok "or".
+        if (sum(grepl(paste0("^", fromString, "$"), nodeList$label))) {
+
+            ## If we're here, we've found the string in the node list...
+            fromLoc <- grep(paste0("^", fromString), nodeList$label);
+
+            ## So return the corresponding index.
+            return(nodeList$id[fromLoc]);
+
+            ## If we haven't found it, try looking without the suffix.
+        } else if (sum(grepl(paste0("^", dropLast(fromString), "$"),
+                             nodeList$label))) {
+
+            fromLoc <- grep(paste0("^", dropLast(fromString)),
+                            nodeList$label);
+            return(nodeList$id[fromLoc]);
+        } else {
+            ## We didn't find it in the nodelist, so grab the corresponding
+            ## "to" and try again, recursively.
+            toLoc <- grep(paste0("^", fromString), edgeList$toLabel);
+
+            if (length(toLoc) == 1) {
+
+                return(findOriginId(edgeList$fromLabel[toLoc],
+                                    edgeList, nodeList));
+
+            } else if (length(toLoc > 1)) {
+                cat("Your edge list is pathological.  An output can connect to\n",
+                    "multiple inputs, but an input cannot connect to multiple\n",
+                    "outputs.\n");
+                stop();
+            }
+        }
+    }
+
+
+
+## Sorts through the edge list and outputs an edge list that references the
+## id field of the node list.
+gate.simplify.edgeList <- function(edges, nodes) {
+
 
     ## Create a couple of columns with the suffix removed from the labels.
     toShort <- edges$toLabel;
@@ -3245,11 +3387,11 @@ gate.simplify.edgeList <- function(edges, nodes) {
         toId <- 0;
 
         for (i in 1:length(nodes$label)) {
-            if (grepl(paste("^", nodes$label[i], "$", sep=""), fromShort)) {
+            if (grepl(paste0("^", nodes$label[i], "$"), fromShort)) {
                 fromId <- nodes$id[i];
             }
 
-            if (grepl(paste("^", nodes$label[i], "$", sep=""), toShort)) {
+            if (grepl(paste0("^", nodes$label[i], "$"), toShort)) {
                 toId <- nodes$id[i];
             }
         }
@@ -3262,55 +3404,13 @@ gate.simplify.edgeList <- function(edges, nodes) {
     ## By this point, we've got most of them, and the ones we don't have
     ## are marked with a zero.
 
-    ## A little recursive function to follow the 'from' nodes backwards.
-    ## We go backwards because there's no forking in that direction.  Once
-    ## these are found, I believe the forwards links left over are
-    ## redundant.
-    findOriginId <- function(fromString, edgeList, nodeList) {
-
-        if (length(fromString) == 0) return(0);
-
-        ## grepl returns an array of T/F. "sum" makes an ok "or".
-        if (sum(grepl(paste("^", fromString, "$", sep=""), nodeList$label))) {
-
-            ## If we're here, we've found the string in the node list...
-            fromLoc <- grep(paste("^", fromString, sep=""), nodeList$label);
-
-            ## So return the corresponding index.
-            return(nodeList$id[fromLoc]);
-
-            ## If we haven't found it, try looking without the suffix.
-        } else if (sum(grepl(paste("^", dropLast(fromString), "$", sep=""),
-                             nodeList$label))) {
-
-            fromLoc <- grep(paste("^", dropLast(fromString), sep=""),
-                            nodeList$label);
-            return(nodeList$id[fromLoc]);
-        } else {
-            ## We didn't find it in the nodelist, so grab the corresponding
-            ## "to" and try again, recursively.
-            toLoc <- grep(paste("^", fromString, sep=""), edgeList$toLabel);
-
-            if (length(toLoc) == 1) {
-
-                return(findOriginId(edgeList$fromLabel[toLoc],
-                                    edgeList, nodeList));
-
-            } else if (length(toLoc > 1)) {
-                cat("Your edge list is pathological.  An output can connect to\n",
-                    "multiple inputs, but an input cannot connect to multiple\n",
-                    "outputs.\n");
-                stop();
-            }
-        }
-    }
-
     ## We have all the matches, except that lots of the "from" indications
     ## have to be traced back to their origin.
     for (i in 1:length(edges$from)) {
         ## If it's a plain number, no need.
         if (edges$from[i] == 0) {
 
+            cat(">>>>>", edges$fromLabel[i],"\n");
             ## Find this in the to list and fix the from.
             edges$from[i] <- findOriginId(edges$fromLabel[i], edges, nodes);
 
