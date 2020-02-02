@@ -333,7 +333,7 @@ if (formatVal(tl[["integer"]]) != "integer: min: 0, max: 100")
 cnxnIDCounter <- 0;
 cnxn <- setClass(
     "cnxn",
-    slots = c(id="numeric", color="vector", weight="numeric"),
+    slots = c(id="numeric", color="character", weight="numeric"),
     validity = function(object) {
         if ((class(object@id) != "numeric") || (object@id != round(object@id)))
             return(paste("Bad ID for connection", object@sink));
@@ -342,9 +342,7 @@ cnxn <- setClass(
             (object@weight < 0))
             return(paste("Bad weight for connection", object@sink));
 
-        if ((class(object@color) != "numeric") ||
-            (sum(object@color) > 3) ||
-            (sum(object@color) < 0))
+        if (class(object@color) != "character")
             return(paste("Bad color for connection", object@sink));
 
         return(TRUE);
@@ -361,7 +359,7 @@ setMethod("initialize",
               if ("color" %in% names(args)) {
                   .Object@color = args[["color"]];
               } else {
-                  .Object@color = c(0.5, 0.5, 0.5);
+                  .Object@color = "gray";
               }
 
               if ("weight" %in% names(args)) {
@@ -383,13 +381,12 @@ setMethod("formatVal",
               out <- "";
               if (style == "verbose") {
                   out <- paste0("id: ", object@id,
-                                ", color: (",
-                                paste0(object@color, collapse=","),
-                                "), weight: ", object@weight);
+                                ", color: ", object@color,
+                                ", weight: ", object@weight);
               } else {
                   out <- paste0(object@id,
-                                " (", paste0(object@color, collapse=","),
-                                "),", object@weight);
+                                " (", object@color,
+                                ",", object@weight, ")");
               }
               return(out);
           });
@@ -430,7 +427,7 @@ cnxns <- setClass(
 ##
 ## This is how to initialize a cnxns object:
 ##
-##  $ cnxns("C2:in1"=cnxn(color=c(0.5,0.5,0.5), weight=2),...)
+##  $ cnxns("C2:in1"=cnxn(color="gray", weight=2),...)
 ##
 ##  $ cnxns("C2:in1", "C1:in2", ...)  This will produce a cnxn object with
 ##  the default color and width values for each sink name.
@@ -1723,7 +1720,7 @@ gate <- setClass(
             definition="function",
             gateList="list",
             cnxnList="cnxnList",
-            color="vector",
+            color="character",
             shape="numeric",
             ## These are generated.
             stateList="gateIOList",
@@ -1751,9 +1748,8 @@ gate <- setClass(
         if (class(object@cnxnList) != "cnxnList")
             return("The cnxnList must be a cnxnList, of course.");
 
-        if ((class(object@color) != "numeric") ||
-            (length(object@color) != 3))
-            return("Express color as a three-element vector.");
+        if (class(object@color) != "character")
+            return("Express color as a hex code or X11 word.");
 
         if (class(object@shape) != "numeric")
             return("Shape is numeric, please.");
@@ -1779,7 +1775,7 @@ setMethod("initialize",
               .Object@io <- gateIO();
               .Object@gateList  <-  list();
               .Object@cnxnList  <-  cnxnList();
-              .Object@color <- vector("numeric",3);
+              .Object@color <- "gray";
               .Object@shape <- 1;
 
               ## Parse constructor arguments.
