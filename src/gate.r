@@ -86,6 +86,11 @@ setGeneric(name="showCount",
                standardGeneric("showCount");
            });
 
+setGeneric(name="showShape",
+           def=function(object) {
+               standardGeneric("showShape");
+           });
+
 setGeneric(name="probs",
            def=function(object, ...) {
                standardGeneric("probs");
@@ -1722,6 +1727,11 @@ gate <- setClass(
             cnxnList="cnxnList",
             color="character",
             shape="character",
+            fillcolor="character",
+            fontcolor="character",
+            fontname="character",
+            penwidth="numeric",
+            style="character",
             ## These are generated.
             stateList="gateIOList",
             transform="function",
@@ -1777,7 +1787,11 @@ setMethod("initialize",
               .Object@cnxnList  <-  cnxnList();
               .Object@color <- "gray";
               .Object@shape <- "circle";
-
+              .Object@fillcolor <- "white";
+              .Object@fontcolor <- "black";
+              .Object@fontname <- "san-serif";
+              .Object@penwidth <- 1.0;
+              .Object@style <- "filled";
               ## Parse constructor arguments.
               args <- list(...);
 
@@ -2029,6 +2043,19 @@ setMethod("show",
           signature="gate",
           definition=function(object) {
               cat(formatVal(object), "\n");
+          });
+
+
+setMethod("showShape",
+          signature="gate",
+          definition=function(object) {
+              cat("color    = ", object@color, "\n");
+              cat("shape    = ", object@shape, "\n", sep="");
+              cat("fillcolor= ", object@fillcolor, "\n", sep="");
+              cat("fontcolor= ", object@fontcolor, "\n", sep="");
+              cat("fontname = ", object@fontname, "\n", sep="");
+              cat("penwidth = ", object@penwidth, "\n", sep="");
+              cat("style    = ", object@style, "\n", sep="");
           });
 
 setMethod("describe",
