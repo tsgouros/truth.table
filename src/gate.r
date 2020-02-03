@@ -3467,8 +3467,6 @@ nodeIndex <- function(label, nodeList) {
 
 ## Returns a new data frame a 'from' and 'to' column referring to nodes in
 ## the nodeList by their id numbers.
-
-
 gate.filterEdgeList <- function(edgeList, nodeList) {
 
     ## A little recursive function to follow the 'from' nodes backwards.  We
@@ -3506,12 +3504,13 @@ gate.filterEdgeList <- function(edgeList, nodeList) {
         if (toID != 0) {
 
             from <- findOriginID(edgeList$toLabel[i], edgeList, nodeList);
+            fromID <- as.numeric(from[1]);
 
-            if (from[1] == 0) stop("bad connection in edgeList.");
+            if (fromID == 0) stop("bad connection in edgeList.");
 
             newEdgeList <- rbind(newEdgeList,
                                  data.frame(id=edgeList$id[i],
-                                            from=from[1],
+                                            from=fromID,
                                             to=toID,
                                             fromLabel=from[2],
                                             toLabel=edgeList$toLabel[i],
@@ -3536,67 +3535,6 @@ gate.filterNodeList <- function(nodeList) {
                        (nodeIndex(nodeList$label[i], nodeList) != 0));
     }
     return(nodeList[selection,]);
-}
-
-
-
-
-## Sorts through the edge list and outputs an edge list that references the
-## id field of the node list.
-gate.simplify.edgeList <- function(edges, nodes) {
-
-
-    ## Create a couple of columns with the suffix removed from the labels.
-    toShort <- edges$toLabel;
-    fromShort <- edges$fromLabel;
-
-    for (i in 1:length(edges$fromLabel)) {
-        fromShort[i] <- dropLast(edges$fromLabel[i]);
-        toShort[i] <- dropLast(edges$toLabel[i]);
-
-    }
-    edges <- cbind(edges, fromShort, toShort);
-
-
-
-    ## Get the easy matches out of the way with mdply.
-    findId <- function(id, fromLabel, toLabel, fromShort, toShort) {
-
-        fromId <- 0;
-        toId <- 0;
-
-        for (i in 1:length(nodes$label)) {
-            if (grepl(paste0("^", nodes$label[i], "$"), fromShort)) {
-                fromId <- nodes$id[i];
-            }
-
-            if (grepl(paste0("^", nodes$label[i], "$"), toShort)) {
-                toId <- nodes$id[i];
-            }
-        }
-        return(data.frame(from=fromId, to=toId));
-    }
-
-    edges <- mdply(edges, findId);
-
-
-    ## By this point, we've got most of them, and the ones we don't have
-    ## are marked with a zero.
-
-    ## We have all the matches, except that lots of the "from" indications
-    ## have to be traced back to their origin.
-    for (i in 1:length(edges$from)) {
-        ## If it's a plain number, no need.
-        if (edges$from[i] == 0) {
-
-            cat(">>>>>", edges$fromLabel[i],"\n");
-            ## Find this in the to list and fix the from.
-            edges$from[i] <- findOriginId(edges$fromLabel[i], edges, nodes);
-
-        }
-    }
-
-    return(edges[(edges$to!=0),c("id","from","to")]);
 }
 
 
