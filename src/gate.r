@@ -574,10 +574,10 @@ if (formatVal(ce3) != "C1:in1(6), C2:in2(7), C3:in3(8), C1:in2(9), C2:in1(10)")
 ## belonging to that gate.  e.g. "AND1:in1" and "OR3:in2" and "OR4:out".
 ##
 ## Examples:
-##  cl <- cnxnList("AND2:out"="AND3:in1", "AND3.out"="OR1:in1,OR2:in2") or
+##  cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"="OR1:in1,OR2:in2") or
 ##  ce1 <- cnxns("AND3:in1")
 ##  ce2 <- cnxns("OR1:in1,OR2:in2")
-##  cl <- cnxnList("AND2:out"=ce1, "AND3.out"=ce2) or
+##  cl <- cnxnList("AND2:out"=ce1, "AND3:out"=ce2) or
 ##
 cnxnList <- setClass(
     "cnxnList",
@@ -2166,8 +2166,8 @@ g.comp2 <- gate(gateList=list("AND1"=g.and, "AND2"=g.and, "XOR1"=g.xor,
 
 
 
-##                           cl <- cnxnList("AND2:out"="AND3:in1", "AND3.out"="OR1:in1,OR2:in2");
-## cl <- add(cl, "AND3.out"="AND4:in2");
+##                           cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"="OR1:in1,OR2:in2");
+## cl <- add(cl, "AND3:out"="AND4:in2");
 ## cl <- add(cl, "in1"="AND1:in1");
 
 ## These are more like tests of gateIO and gval
@@ -3276,7 +3276,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
         ## constructs.
         for (iname in names(g@io@inputs)) {
             prefixName <- iname;
-            if (prefix != "") prefixName <- paste0(prefix, ".", iname);
+            if (prefix != "") prefixName <- paste0(prefix, ":", iname);
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(id=nodeID, label=prefixName,
                                              color=g@color,
@@ -3317,7 +3317,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
         ## thing.
         for (oname in names(g@io@outputs)) {
             prefixName <- oname;
-            if (prefix != "") prefixName <- paste0(prefix, ".", oname);
+            if (prefix != "") prefixName <- paste0(prefix, ":", oname);
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(id=nodeID, label=prefixName,
                                              color=g@color,
@@ -3387,8 +3387,16 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="", edgeID=1) {
             prefixedSource <- sourceName;
             prefixedSink <- sinkName;
             if (prefix != "") {
-                prefixedSource <- paste(prefix, sourceName, sep=".");
-                prefixedSink <- paste(prefix, sinkName, sep=".");
+                if (grepl(":", sourceName)) {
+                    prefixedSource <- paste(prefix, sourceName, sep=".");
+                } else {
+                    prefixedSource <- paste(prefix, sourceName, sep=":");
+                }
+                if (grepl(":", sinkName)) {
+                    prefixedSink <- paste(prefix, sinkName, sep=".");
+                } else {
+                    prefixedSink <- paste(prefix, sinkName, sep=":");
+                }
             }
 
             out.edgeList <-
@@ -3407,9 +3415,7 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="", edgeID=1) {
     return(out.edgeList);
 }
 
-gate.filterEdgeList <- function(edgeList, nodeList) {
-
-    ## A little function to get rid of the suffix, if this is a compound
+    ## A little function to get rid of a suffix, if this is a compound
     ## string, like 'a.b.c'.  Strings without a '.' are untouched.  Used by
     ## findOriginID, below.
     dropLast <- function(label) {
@@ -3420,66 +3426,116 @@ gate.filterEdgeList <- function(edgeList, nodeList) {
             return(label);
         }
     }
-    ## A little recursive function to follow the 'from' nodes backwards.
-    ## We go backwards because there's no forking in that direction.  Once
-    ## these are found, I believe the forwards links left over are
-    ## redundant.
-    findOriginID <- function(fromString, edgeList, nodeList) {
 
-        if (length(fromString) == 0) return(0);
+## Given an input or output node (e.g. "C1.AND1.in1" or "C1.out", returns the
+## index of that node in the nodeList.  Returns 0 if the node is not a real
+## node (i.e. the input or output of a composite node), except for the global
+## inputs and output, which are specified without a qualifier (e.g. "in1" or
+## "out34").  Otherwise returns the id from the nodeList.  (This should be
+## the row number in most cases.)
+nodeIndex <- function(label, nodeList) {
 
-        ## grepl returns an array of T/F. "sum" makes an ok "or".
-        if (sum(grepl(paste0("^", fromString, "$"), nodeList$label))) {
+    ## First just check to see if the label is in the nodeList as is.
+    if (sum(grepl(paste0("^", label, "$"), nodeList$label))) {
+        testIndex <- grep(paste0("^", label, "$"), nodeList$label);
 
-            ## If we're here, we've found the string in the node list...
-            fromLoc <- grep(paste0("^", fromString, "$"), nodeList$label);
+        ## Should this throw an error, or just quietly return failure?
+        if (length(testIndex) != 1) return(0);
 
-            ## So return the corresponding index.
-            return(nodeList$id[fromLoc]);
-
-            ## If we haven't found it, try looking without the suffix.
-        } else if (sum(grepl(paste0("^", dropLast(fromString), "$"),
-                             nodeList$label))) {
-
-            fromLoc <- grep(paste0("^", dropLast(fromString)),
-                            nodeList$label);
-            return(nodeList$id[fromLoc]);
+        if (nodeList$real[testIndex]) {
+            return(nodeList$id[testIndex]);
         } else {
-            ## We didn't find it in the nodelist, so grab the corresponding
-            ## "to" and try again, recursively.
-            toLoc <- grep(paste0("^", fromString), edgeList$toLabel);
-
-            if (length(toLoc) == 1) {
-
-                return(findOriginId(edgeList$fromLabel[toLoc],
-                                    edgeList, nodeList));
-
-            } else if (length(toLoc > 1)) {
-                cat("Your edge list is pathological.  An output can connect to\n",
-                    "multiple inputs, but an input cannot connect to multiple\n",
-                    "outputs.\n");
-                stop();
+            if (grepl(":", label)) {
+                ## This is not a real node, bail out.
+                return(0);
+            } else {
+                ## This is probably one of the global ins or outs.  It's
+                ## also a fake node, but we want it anyway.
+                return(nodeList$id[testIndex]);
             }
+        }
+    } else {
+        ## Drop the ":" suffix and try again.
+        if (grepl(":", label)) {
+            return(nodeIndex(strsplit(label, ":")[[1]][1], nodeList));
+        } else {
+            return(0);
+        }
+    }
+}
+
+
+## Returns a new data frame a 'from' and 'to' column referring to nodes in
+## the nodeList by their id numbers.
+
+
+gate.filterEdgeList <- function(edgeList, nodeList) {
+
+    ## A little recursive function to follow the 'from' nodes backwards.  We
+    ## go backwards because there's no forking in that direction.  Once these
+    ## are found, I believe the forwards links left over are redundant.
+    ## Returns the ID in the node list and the corresponding fromLabel.
+    findOriginID <- function(toLabel, edgeList, nodeList) {
+
+        if (length(toLabel) == 0) return(c(0, ""));
+
+        ## First, is this label actually connected to anything?  (grepl
+        ## returns an array of T/F. sum() makes an ok "or".)
+        if (sum(grepl(paste0("^", toLabel), edgeList$toLabel))) {
+            fromIndex <- grep(paste0("^", toLabel), edgeList$toLabel);
+            fromLabel <- el$fromLabel[fromIndex];
+
+            fromNode <- nodeIndex(fromLabel, nodeList);
+
+            if (fromNode == 0) {
+                ## It's not real, step further back.
+                return(findOriginID(fromLabel, edgeList, nodeList));
+            } else {
+                return(c(fromNode, fromLabel));
+            }
+        } else {
+            ## toLabel seems not to be connected to anything.
+            return(c(0, ""));
         }
     }
 
-    for (fl in edgeList$toLabel) {
-        cat(findOriginID(fl, edgeList, nodeList), "\n");
+    newEdgeList <- data.frame(stringsAsFactors=FALSE);
+
+    for (i in 1:length(edgeList$id)) {
+        toID <- nodeIndex(edgeList$toLabel[i], nodeList);
+        if (toID != 0) {
+
+            from <- findOriginID(edgeList$toLabel[i], edgeList, nodeList);
+
+            if (from[1] == 0) stop("bad connection in edgeList.");
+
+            newEdgeList <- rbind(newEdgeList,
+                                 data.frame(id=edgeList$id[i],
+                                            from=from[1],
+                                            to=toID,
+                                            fromLabel=from[2],
+                                            toLabel=edgeList$toLabel[i],
+                                            weight=edgeList$weight[i],
+                                            color=edgeList$color[i],
+                                            eid=edgeList$eid[i],
+                                            stringsAsFactors=FALSE));
+        }
     }
-
-    newEdgeList <- edgeList;
-
     return(newEdgeList);
 }
+
 
 ## This is easier.  Just delete the rows with nodeList$real=FALSE.  These
 ## represent the imaginary nodes making up the specified inputs and outputs
 ## of compound gates.
 gate.filterNodeList <- function(nodeList) {
 
-    newNodeList <- nodeList;
-
-    return(newNodeList);
+    selection <- c();
+    for (i in 1:length(nodeList$id)) {
+        selection <- c(selection,
+                       (nodeIndex(nodeList$label[i], nodeList) != 0));
+    }
+    return(nodeList[selection,]);
 }
 
 
