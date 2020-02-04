@@ -3253,10 +3253,29 @@ gate.makeNodeList <- function(g, recurse=FALSE, prefix="") {
 ## > nl <- gate.nodeList(test.COMP2gate)
 ## > el <- gate.edgeList(test.COMP2gate)
 ## > tl <- gate.simplify.edgeList(el, nl)
+## > elf <- gate.filterEdgeList(el, nl)
+## > nlf <- gate.filterNodeList(nl)
 ## > igr <- create_graph()
 ## > igr2 <- igr %>% add_nodes_from_table(table=nl, label_col=label)
 ## > igr3 <- igr2 %>% add_edges_from_table(table=tl, from_col=from, to_col=to, from_to_map=id_external)
+## > igr2 <- igr %>% add_nodes_from_table(table=nlf, label_col=label)
+## > igr3 <- igr2 %>% add_edges_from_table(table=elf, from_col=from, to_col=to, from_to_map=id_external)
 ## > render_graph(igr3, layout="tree")
+##
+## This renders the tree upside-down.  You can turn it over with this:
+## > igr3 %>% generate_dot() %>% cat(file="dot.gv")
+## > grViz("dot.gv")
+## and in between, editing dot.gv.  The following choice of 'graph' attributes
+## seems to do it more or less right:
+##
+## graph [layout = 'dot',
+##        rankdir = "BT",
+##        outputorder = 'edgesfirst',
+##        bgcolor = 'white']
+##
+## This degree of control does not appear to be available through
+## DiagrammeR.
+##
 ##
 ## compiles a table of nodes for a gate for drawing them.  If the node is
 ## atomic, this is pretty simple.  If it is composite, the function is
