@@ -1744,6 +1744,7 @@ gate <- setClass(
             definition="function",
             gateList="list",
             cnxnList="cnxnList",
+            data="list",
             color="character",
             shape="character",
             nodetype="character",
@@ -1777,6 +1778,9 @@ gate <- setClass(
 
         if (class(object@cnxnList) != "cnxnList")
             return("The cnxnList must be a cnxnList, of course.");
+
+        if (class(object@data) != "list")
+            return("Store the gate data in a list.");
 
         if (class(object@color) != "character")
             return("Express color as a hex code or X11 word.");
@@ -1823,6 +1827,7 @@ setMethod("initialize",
               .Object@io <- gateIO();
               .Object@gateList  <-  list();
               .Object@cnxnList  <-  cnxnList();
+              .Object@data <- list();
               .Object@color <- "gray";
               .Object@shape <- "circle";
               .Object@nodetype <- "lower";
@@ -1866,7 +1871,8 @@ setMethod("initialize",
 
                   ## Make a function to execute the gateList.
                   .Object@transformOnce <-
-                      function(argList, inspect=FALSE, prefix="") {
+                      function(argList, data=.Object@data,
+                               inspect=FALSE, prefix="") {
 
                           ## Use cnxnList to copy inputs into place.
                           for (src in names(.Object@cnxnList)) {
@@ -1897,13 +1903,16 @@ setMethod("initialize",
                                       sublist= gate@transformOnce(
                                                         subset(argList,
                                                                expr=gateName),
+                                                        data=data,
                                                         inspect=inspect,
                                                         prefix=prefix));
                           }
                           return(argList);
 
                       };
-                  .Object@transform <- function(argList, tickMax=100,
+                  .Object@transform <- function(argList,
+                                                data=.Object@data,
+                                                tickMax=100,
                                                 inspect=FALSE, prefix="") {
                       if (class(argList) != "gateIOList")
                           stop("Bad input list to transformOnce.");
@@ -1933,6 +1942,7 @@ setMethod("initialize",
                           if (inspect) cat("iteration:", tick, "\n");
                           .Object@stateList <-
                               .Object@transformOnce(.Object@stateList,
+                                                    data=data,
                                                     inspect=inspect,
                                                     prefix=prefix);
                           if (tick >= tickMax) break;
@@ -1948,6 +1958,7 @@ setMethod("initialize",
 
                   ## This must be an atomic gate transform.
                   .Object@transformOnce <- function(argList,
+                                                    data=.Object@data,
                                                     inspect=FALSE, prefix="") {
                       ## We hope argList is a gateIOList of length 1.
                       if ((class(argList) != "gateIOList") ||
@@ -1986,17 +1997,22 @@ setMethod("initialize",
                                  outputs=
                                      .Object@definition(
                                                  getVal(argList[["this"]],
-                                                        "inputs")));
+                                                        "inputs"),
+                                                 data=data));
 
                       return(argList);
                   };
                   ## For an atomic transform, this is the same as
                   ## transformOnce, with the tickMax arg, which doesn't do
                   ## anything.
-                  .Object@transform <- function(argList, tickMax=100,
+                  .Object@transform <- function(argList,
+                                                data=.Object@data,
+                                                tickMax=100,
                                                 inspect=FALSE, prefix="") {
 
-                      argList <- .Object@transformOnce(argList, inspect=inspect,
+                      argList <- .Object@transformOnce(argList,
+                                                       data=data,
+                                                       inspect=inspect,
                                                        prefix=prefix);
                       return(argList);
                   };
@@ -3236,11 +3252,26 @@ gate.makeNodeList <- function(g, recurse=FALSE, prefix="") {
 ## > igr <- create_graph()
 ## > nl <- gate.nodeList(test.COMP2gate)
 ## > el <- gate.edgeList(test.COMP2gate)
-## > tl <- gate.simplify.edgeList(el, nl)
+## > elf <- gate.filterEdgeList(el, nl)
+## > nlf <- gate.filterNodeList(nl)
 ## > igr <- create_graph()
-## > igr2 <- igr %>% add_nodes_from_table(table=nl, label_col=label)
-## > igr3 <- igr2 %>% add_edges_from_table(table=tl, from_col=from, to_col=to, from_to_map=id_external)
+## > igr2 <- igr %>% add_nodes_from_table(table=nlf, label_col=label)
+## > igr3 <- igr2 %>% add_edges_from_table(table=elf, from_col=from, to_col=to, from_to_map=id_external)
 ## > render_graph(igr3, layout="tree")
+##
+## This renders the tree upside-down.  You can turn it over with this:
+## > igr3 %>% generate_dot() %>% cat(file="dot.gv")
+## > grViz("dot.gv")
+## and in between, editing dot.gv.  The following choice of 'graph' attributes
+## seems to do it more or less right:
+##
+## graph [layout = 'dot',
+##        rankdir = "BT",
+##        outputorder = 'edgesfirst',
+##        bgcolor = 'white']
+##
+## This degree of control does not appear to be available through
+## DiagrammeR.
 ##
 ## compiles a table of nodes for a gate for drawing them.  If the node is
 ## atomic, this is pretty simple.  If it is composite, the function is
@@ -3479,8 +3510,8 @@ gate.filterEdgeList <- function(edgeList, nodeList) {
 
         ## First, is this label actually connected to anything?  (grepl
         ## returns an array of T/F. sum() makes an ok "or".)
-        if (sum(grepl(paste0("^", toLabel), edgeList$toLabel))) {
-            fromIndex <- grep(paste0("^", toLabel), edgeList$toLabel);
+        if (sum(grepl(paste0("^", toLabel, "$"), edgeList$toLabel))) {
+            fromIndex <- grep(paste0("^", toLabel, "$"), edgeList$toLabel);
             fromLabel <- el$fromLabel[fromIndex];
 
             fromNode <- nodeIndex(fromLabel, nodeList);
