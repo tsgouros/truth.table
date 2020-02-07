@@ -981,17 +981,24 @@ if (!is.empty(gval(type=binary))) stop("empty gval reads as full.");
 ## A gateIO object holds a set of inputs and outputs for some gate.  This
 ## is two lists of gvals, one for the inputs to some gate and the other for
 ## the output.  Don't use 'replace' or 'type' for an input or output label.
-gateIO <- setClass(
+##
+## A gateIO object also contains a list of some arbitrary data supplied to
+## the gate.  This is to facilitate code re-use.  Many gates can use the
+## same underlying R function as their definition if they can have a list of
+## other params made available to them.  This is all pretty arbitrary, so the
+## output facilities are limited.
+ gateIO <- setClass(
     "gateIO",
-    slots=c(inputs="list", outputs="list"),
+    slots=c(inputs="list", outputs="list", params="list"),
     validity = function(object) {
-        if (class(object@inputs) != "list") return("inputs must be a list");
-        if (class(object@outputs) != "list") return("outputs must be a list");
+        if (class(object@inputs) != "list") return("inputs must be a list.");
+        if (class(object@outputs) != "list") return("outputs must be a list.");
         if ("replace" %in% names(object@inputs))
             return("Please don't use 'replace' for an input name.");
         if ("replace" %in% names(object@outputs))
             return("Please don't use 'replace' for an output name.");
 
+        if (class(object@params) != "list") return("Params list must be a list.");
         ## We don't need to check all the values against the types because
         ## that is done in the gval constructor.
 
@@ -1026,7 +1033,7 @@ setMethod("initialize",
 
               output <- grepl("^o", names(args));
               if (sum(output) == 1) { ## There's one arg that starts with 'o'.
-                  outputIndex <- which(output)
+                  outputIndex <- which(output);
                   if (length(outputIndex) > 1) {
                       stop("Ambiguous argument to constructor.");
                   }
@@ -1039,6 +1046,21 @@ setMethod("initialize",
                   .Object@outputs <- args[[outputIndex]];
               } else if (sum(output) > 1) {
                   stop("gateIO objects forbid multiple output lists.");
+              }
+
+              params <- grepl("^p", names(args));
+              if (sum(params) == 1) { ## One arg starts with a 'p'.
+                  paramsIndex <- which(params);
+                  if (length(paramsIndex) > 1) {
+                      stop("Ambiguous argument to params constructor.");
+                  }
+
+                  if (class(args[[paramsIndex]]) != "list")
+                      stop("gateIO params must be a list.");
+
+                  .Object@params <- args[[paramsIndex]];
+              } else {
+                  .Object@params <- list();
               }
 
               validObject(.Object);
@@ -1055,11 +1077,11 @@ setMethod("formatVal",
                   prefix <- args$prefix;
               }
 
+              outstr <- "";
               if (style == "verbose") {
 
-                  outstr <- "";
-                  out <- c();
                   if (length(object@inputs) > 0) {
+                      out <- c();
                       for (i in 1:length(object@inputs)) {
                           out <- c(out, paste0(prefix, "  ",
                                                names(object@inputs)[i], ": ",
@@ -1067,20 +1089,47 @@ setMethod("formatVal",
                       }
                       outstr <- paste0(prefix, "inputs:\n",
                                       paste0(out, collapse="\n"));
+                  } else {
+                      outstr <- paste0(prefix, "No inputs.\n");
                   }
 
-                  if (length(object@outputs) == 0) return(outstr);
-                  if (outstr != "") outstr <- paste0(outstr, "\n");
+                  if (length(object@outputs) > 0) {
 
-                  out <- c();
-                  for (i in 1:length(object@outputs)) {
-                      out <- c(out, paste0(prefix, "  ",
-                                           names(object@outputs)[i], ": ",
-                                           formatVal(object@outputs[[i]])));
+                      out <- c();
+                      for (i in 1:length(object@outputs)) {
+                          out <- c(out,
+                                   paste0(prefix, "  ",
+                                          names(object@outputs)[i], ": ",
+                                          formatVal(object@outputs[[i]])));
+                      }
+                      outstr <- paste0(outstr, "\n", prefix, "outputs:\n",
+                                       paste0(out, collapse="\n"));
+                  } else {
+                      outstr <- paste0(outstr, "\nNo outputs.\n");
                   }
-                  outstr <- paste0(outstr, prefix, "outputs:\n",
-                                   paste0(out, collapse="\n"));
-                  return(outstr);
+
+                  ## Now do the params.  This is a little tricky since
+                  ## we don't limit what can go into the params list.
+                  ## That is, not all possible values are printable.
+                  ## (Maybe they are, paste() seems pretty forgiving,
+                  ## but I don't know for sure.)
+                  if (length(object@params) > 0) {
+
+                      out <- c();
+                      for (i in 1:length(object@params)) {
+                          formatted <- try(paste0(object@params[i]),
+                                           silent=TRUE);
+                          if (class(formatted) == "try-error")
+                              formatted <- "*";
+                          out <- c(out, paste0(prefix, "  ",
+                                               names(object@params)[i], ": ",
+                                               formatted));
+                      }
+                      outstr <- paste0(outstr, "\n", prefix, "params:\n",
+                                       paste0(out, collapse="\n"));
+                  } else {
+                      outstr <- paste0(outstr, "\nNo params.");
+                  }
 
               } else {
 
@@ -1090,9 +1139,8 @@ setMethod("formatVal",
                       (length(object@inputs) > 5))
                       return(formatVal(object, style="verbose"));
 
-                  outstr <- "";
-                  out <- c();
                   if (length(object@inputs) > 0) {
+                      out <- c();
                       for (i in 1:length(object@inputs)) {
                           out <- c(out, paste0(names(object@inputs)[i], "=",
                                                formatVal(object@inputs[[i]])));
@@ -1101,18 +1149,36 @@ setMethod("formatVal",
                                        paste0(out, collapse=", "));
                   }
 
-                  if (length(object@outputs) == 0) return(outstr);
-                  if (outstr != "") outstr <- paste0(outstr, "\n");
+                  if (length(object@outputs) > 0) {
+                      if (outstr != "") outstr <- paste0(outstr, "\n");
 
-                  out <- c();
-                  for (i in 1:length(object@outputs)) {
-                      out <- c(out, paste0(names(object@outputs)[i], "=",
-                                           formatVal(object@outputs[[i]])));
+                      out <- c();
+                      for (i in 1:length(object@outputs)) {
+                          out <- c(out,
+                                   paste0(names(object@outputs)[i], "=",
+                                          formatVal(object@outputs[[i]])));
+                      }
+                      outstr <- paste0(outstr, prefix, "O: ",
+                                       paste0(out, collapse=", "));
                   }
-                  outstr <- paste0(outstr, prefix, "O: ",
-                                   paste0(out, collapse=", "));
-                  return(outstr);
+
+                  if (length(object@params) > 0) {
+                      if (outstr != "") outstr <- paste0(outstr, "\n");
+
+                      out <- c();
+                      for (i in 1:length(object@params)) {
+                          formatted <- try(paste0(object@params[i]),
+                                           silent=TRUE);
+                          if (class(formatted) == "try-error")
+                              formatted <- "*";
+                          out <- c(out, paste0(names(object@params)[i], ": ",
+                                               formatted));
+                      }
+                      outstr <- paste0(outstr, prefix, "P: ",
+                                       paste0(out, collapse=", "));
+                  }
               }
+              return(outstr);
           });
 
 setMethod("show",
@@ -1135,6 +1201,7 @@ setMethod("getVal",
 
               if (args[[1]] == "inputs") return(object@inputs);
               if (args[[1]] == "outputs") return(object@outputs);
+              if (args[[1]] == "params") return(object@params);
 
               ## The valName could refer to an item among the inputs or the
               ## outputs, so check both before giving up.
@@ -1744,7 +1811,6 @@ gate <- setClass(
             definition="function",
             gateList="list",
             cnxnList="cnxnList",
-            data="list",
             color="character",
             shape="character",
             nodetype="character",
@@ -1778,9 +1844,6 @@ gate <- setClass(
 
         if (class(object@cnxnList) != "cnxnList")
             return("The cnxnList must be a cnxnList, of course.");
-
-        if (class(object@data) != "list")
-            return("Store the gate data in a list.");
 
         if (class(object@color) != "character")
             return("Express color as a hex code or X11 word.");
@@ -1827,7 +1890,6 @@ setMethod("initialize",
               .Object@io <- gateIO();
               .Object@gateList  <-  list();
               .Object@cnxnList  <-  cnxnList();
-              .Object@data <- list();
               .Object@color <- "gray";
               .Object@shape <- "circle";
               .Object@nodetype <- "lower";
@@ -1851,8 +1913,7 @@ setMethod("initialize",
                           args[[name]];
 
                   } else {
-                      cat("ambiguous arguments to gate initialization.\n");
-                      stop();
+                      stop("Ambiguous arguments to gate initialization.");
                   }
               }
 
@@ -1869,10 +1930,13 @@ setMethod("initialize",
                   ##show(.Object@cnxnList);
 
 
-                  ## Make a function to execute the gateList.
+                  ## Make a function to execute each gate in the gateList.
+                  ## Note that params are passed in with argList.
                   .Object@transformOnce <-
-                      function(argList, data=.Object@data,
-                               inspect=FALSE, prefix="") {
+                      function(argList, inspect=FALSE, prefix="") {
+
+                          if (class(argList) != "gateIOList")
+                              stop("transform function requires a gateIOList");
 
                           ## Use cnxnList to copy inputs into place.
                           for (src in names(.Object@cnxnList)) {
@@ -1885,7 +1949,7 @@ setMethod("initialize",
 
                           ## Execute the component gates.  Once.  Might
                           ## arrange to skip execution if the outputs are
-                          ## already there.
+                          ## already there, but that feature isn't here yet.
                           for (gateName in names(.Object@gateList)) {
                               if (inspect) {
                                   cat(prefix, "executing: ", gateName,
@@ -1903,7 +1967,6 @@ setMethod("initialize",
                                       sublist= gate@transformOnce(
                                                         subset(argList,
                                                                expr=gateName),
-                                                        data=data,
                                                         inspect=inspect,
                                                         prefix=prefix));
                           }
@@ -1911,9 +1974,9 @@ setMethod("initialize",
 
                       };
                   .Object@transform <- function(argList,
-                                                data=.Object@data,
                                                 tickMax=100,
                                                 inspect=FALSE, prefix="") {
+
                       if (class(argList) != "gateIOList")
                           stop("Bad input list to transformOnce.");
 
@@ -1942,7 +2005,6 @@ setMethod("initialize",
                           if (inspect) cat("iteration:", tick, "\n");
                           .Object@stateList <-
                               .Object@transformOnce(.Object@stateList,
-                                                    data=data,
                                                     inspect=inspect,
                                                     prefix=prefix);
                           if (tick >= tickMax) break;
@@ -1958,7 +2020,6 @@ setMethod("initialize",
 
                   ## This must be an atomic gate transform.
                   .Object@transformOnce <- function(argList,
-                                                    data=.Object@data,
                                                     inspect=FALSE, prefix="") {
                       ## We hope argList is a gateIOList of length 1.
                       if ((class(argList) != "gateIOList") ||
@@ -1966,23 +2027,23 @@ setMethod("initialize",
                           stop("Bad inputs to transformOnce.");
                       }
 
-                      argList[["this"]] <- clearOutputs(argList[["this"]]);
+                      thisIO <- clearOutputs(argList[["this"]]);
 
                       ## Checking that names and types match.
                       inputList <- getVal(.Object@io, "inputs");
                       for (name in names(inputList)) {
-                          if (!(name %in% names(argList[["this"]]))) {
+                          if (!(name %in% names(thisIO))) {
                               if (inspect)
                                   cat(prefix, name, " is missing.\n", sep="");
                               return(argList)
                           }
                           if (!check(inputList[[name]]@type,
-                                     getVal(argList[["this"]], name))) {
+                                     getVal(thisIO, name))) {
                               stop(name, " is a bad argument.");
                           }
                           ## We also don't want to execute if any of the
                           ## input values are empty.
-                          if (is.empty(argList[["this"]]@inputs[[name]])) {
+                          if (is.empty(thisIO@inputs[[name]])) {
                               if (inspect) {
                                   cat(prefix, name, " is an empty value.\n",
                                       sep="");
@@ -1993,12 +2054,13 @@ setMethod("initialize",
 
                       ## Execute the transformation's definition.
                       argList[["this"]] <-
-                          setVal(argList[["this"]],
+                          setVal(thisIO,
                                  outputs=
                                      .Object@definition(
-                                                 getVal(argList[["this"]],
+                                                 getVal(thisIO,
                                                         "inputs"),
-                                                 data=data));
+                                                 params=getVal(thisIO,
+                                                               "params")));
 
                       return(argList);
                   };
@@ -2006,12 +2068,10 @@ setMethod("initialize",
                   ## transformOnce, with the tickMax arg, which doesn't do
                   ## anything.
                   .Object@transform <- function(argList,
-                                                data=.Object@data,
                                                 tickMax=100,
                                                 inspect=FALSE, prefix="") {
 
                       argList <- .Object@transformOnce(argList,
-                                                       data=data,
                                                        inspect=inspect,
                                                        prefix=prefix);
                       return(argList);
