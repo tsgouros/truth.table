@@ -1025,6 +1025,9 @@ setMethod("initialize",
                       stop("gateIO inputs must be a list.");
                   if (class(args[[inputIndex]][[1]]) != "gval")
                       stop("gateIO inputs must be a list of gvals.");
+                  if (length(names(args[[inputIndex]])) !=
+                      length(args[[inputIndex]]))
+                      stop("gateIO inputs must be named.");
 
                   .Object@inputs <- args[[inputIndex]];
               } else if (sum(input) > 1) {
@@ -1042,6 +1045,9 @@ setMethod("initialize",
                       stop("gateIO outputs must be a list.");
                   if (class(args[[outputIndex]][[1]]) != "gval")
                       stop("gateIO outputs must be a list of gvals.");
+                  if (length(names(args[[outputIndex]])) !=
+                      length(args[[outputIndex]]))
+                      stop("gateIO outputs must be named.");
 
                   .Object@outputs <- args[[outputIndex]];
               } else if (sum(output) > 1) {
@@ -1341,6 +1347,56 @@ setMethod("setVal",
               return(object);
           });
 
+## Adds a value or values to a gateIO object.  Names that already exist get
+## overwritten.  We only really use this for input and output objects.  If
+## you want to mess with the params, do it directly.  But those are not
+## really meant to be dynamic data values.
+##
+## Note: this fails when called like this:
+##   add(gio, "o"=list("wow"=gval(42, integer))
+## But these are ok:
+##   add(gio, "out"=list("wow"=gval(42, integer))
+##   add(gio, "i"=list("wow"=gval(42, integer))
+##
+## No idea why.
+setMethod("add",
+          signature = "gateIO",
+          definition = function(object, ...) {
+              args <- list(...);
+
+              if (is.null(names(args))) {
+                  if (class(args[[1]]) == "gateIO") {
+                      return(add(object, "outputs"=getVal(args[[1]],"outputs"),
+                                 "inputs"=getVal(args[[1]],"inputs")));
+                  } else if (class(args[[1]]) == "gateIOList") {
+                      return(add(object, args[[1]][["this"]]));
+                  }
+              }
+
+              for (name in names(args)) {
+                  if (isOutputName(name)) {
+                      if (class(args[[name]]) == "list") {
+                          for (subName in names(args[[name]])) {
+                              object@outputs[[subName]] <-
+                                  args[[name]][[subName]];
+                          }
+                      } else { ## Not a list, but a name/gval pair
+                          object@outputs[[name]] <- args[[name]];
+                      }
+                  } else {
+                      if (class(args[[name]]) == "list") {
+                          for (subName in names(args[[name]])) {
+                              object@inputs[[subName]] <-
+                                  args[[name]][[subName]];
+                          }
+                      } else { ## Not a list, but a name/gval pair
+                          object@inputs[[name]] <- args[[name]];
+                      }
+                  }
+              }
+              return(object);
+          });
+
 setMethod("names",
           signature="gateIO",
           definition=function(x) { return(c(names(x@inputs),
@@ -1411,6 +1467,12 @@ if (is.empty(gio)) stop("gio is not empty.");
 if (!is.empty(gateIO())) stop("empty gateIO is not full.");
 
 if (getVal(gio[["in1"]]) != 5) stop("gio subsetting problem.");
+
+if (formatVal(add(gio, "out"=gval(42, integer))) != "I: in1=5 (integer: min: 0, max: 100), in2=1 (symbol: 0/1), in3=1 (symbol: 0/1)\nO: out=42 (integer: min: 0, max: 100), out2=4 (integer: min: 0, max: 100)")
+    stop("gio add problem.");
+
+if (formatVal(add(gio, gateIO(out=list("out"=gval(43, integer))))) != "I: in1=5 (integer: min: 0, max: 100), in2=1 (symbol: 0/1), in3=1 (symbol: 0/1)\nO: out=43 (integer: min: 0, max: 100), out2=4 (integer: min: 0, max: 100)")
+    stop("second gio add problem.");
 
 ############################################################################
 ## COLLECTIONS OF INPUTS AND OUTPUTS
@@ -1697,10 +1759,17 @@ setMethod("add",
 
                   ## Sort through the input list and add the values to the
                   ## output object, with the new names on them.
+               ##   sourceList <- args[["sublist"]]
+                  ## for (name in names(sourceList))
+                  ##     if (name == "this") {
+                  ##         object[[args[["tag"]] ]][["this"]] <-
+                  ##             add(object[[args[["tag"]] ]][["this"]],
+
+
                   for (name in names(args[["sublist"]])) {
                       if (name == "this") {
                           object[[args[["tag"]] ]] <-
-                              args[["sublist"]][[name]];
+                                  args[["sublist"]][[name]];
                       } else {
                           object[[paste(args[["tag"]], name, sep=".")]] <-
                               args[["sublist"]][[name]];
@@ -1964,11 +2033,11 @@ setMethod("initialize",
                               argList <-
                                   add(argList,
                                       tag=gateName,
-                                      sublist= gate@transformOnce(
-                                                        subset(argList,
-                                                               expr=gateName),
-                                                        inspect=inspect,
-                                                        prefix=prefix));
+                                      sublist=gate@transformOnce(
+                                                       subset(argList,
+                                                              expr=gateName),
+                                                       inspect=inspect,
+                                                       prefix=prefix));
                           }
                           return(argList);
 
