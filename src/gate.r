@@ -1430,6 +1430,14 @@ setMethod("$",
           signature="gateIO",
           definition=function(x, name) { return(x[[name]]); });
 
+setMethod("$<-",
+          signature="gateIO",
+          definition=function(x, name, value) {
+              x[[name]] <- value;
+              return(x);
+          });
+
+
 setMethod("[[<-",
           signature="gateIO",
           definition=function(x, i, j, ..., value) {
@@ -1697,7 +1705,7 @@ if (formatVal(gls) != "this:\n I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\n\nAN
 if (formatVal(gls$this) != "I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)")
     stop("second gls problem");
 
-gls$this <- gateIO(i=list("in1"=gval("1"), "in2"=gval("0")), o=list("out"=gval(type=binary)))
+gls[["this"]] <- gateIO(i=list("in1"=gval("1"), "in2"=gval("0")), o=list("out"=gval(type=binary)))
 if (formatVal(gls) != "this:\n I: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)\n\nAND1:\n I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
     stop("third gls problem");
 
@@ -1812,7 +1820,7 @@ setMethod("add",
                       } else if (class(args[[name]]) == "list") {
                           ## If it's just a list of gvals, tuck them into the
                           ## 'this' object.
-                          object$this <- add(object$this,
+                          object[["this"]] <- add(object[["this"]],
                                                   name=args[[name]]);
                       } else {
                           stop(name, " must be a list or gateIO object.");
@@ -1933,11 +1941,10 @@ if (formatVal(glsSub) != "this:\n I: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\n\
 gateIDCounter <- 0;
 gate <- setClass(
     "gate",
-    slots=c(state="gateIOList",
+    slots=c(io="gateIO",
             definition="function",
             gateList="list",
             cnxnList="cnxnList",
-            defaultParams="list",
             color="character",
             shape="character",
             nodetype="character",
@@ -1953,8 +1960,8 @@ gate <- setClass(
             type="character"),
     validity=function(object) {
 
-        if (class(object@state) != "gateIOList")
-            return("state must be a gateIOList object");
+        if (class(object@io) != "gateIO")
+            return("io must be a gateIO object");
 
         if ((!is.null(object@definition)) &&
             (class(object@definition) != "function"))
@@ -1970,9 +1977,6 @@ gate <- setClass(
 
         if (class(object@cnxnList) != "cnxnList")
             return("The cnxnList must be a cnxnList, of course.");
-
-        if (class(object@defaultParams) != "list")
-            return("The default params list must be a list, of course.");
 
         if (class(object@color) != "character")
             return("Express color as a hex code or X11 word.");
@@ -2005,6 +2009,64 @@ gate <- setClass(
         return(TRUE);
     });
 
+## A recursive function to run through the cnxnList of some gate object and
+## copy all the sources to their sinks.
+propagateCnxns <- function(obj, inspect=FALSE, prefix="") {
+
+    cat(prefix, "calling propagate...\n");
+
+    if (class(obj) != "gate")
+        stop("Propagate is an operation defined on gate objects.");
+
+    ## Use cnxnList to copy inputs into their places.
+    for (src in names(obj@cnxnList)) {
+
+        ## src is a name like "AND1:out" or "in1".  Figure out where its gval
+        ## lives.  For names like "in1", it will be in the io object.
+        ## Otherwise it's in the io object of the gate specified before the
+        ## colon, i.e. "AND1" for "AND1:out".
+        if (grepl(":", src)) {
+            srcComp <- strsplit(src, ":")[[1]];
+            srcGate <- srcComp[1];
+            srcPin  <- srcComp[2];
+            srcVal <- obj@gateList[[srcGate]]@io[[srcPin]];
+        } else {
+            srcVal <- obj@io[[src]];
+        }
+
+        for (sink in names(obj@cnxnList[[src]])) {
+            if (inspect) {
+                cat(prefix, "  copying ", src, " to ",
+                    sink, "\n", sep="");
+            }
+
+            if (grepl(":", sink)) {
+                sinkComp <- strsplit(sink, ":")[[1]];
+                sinkGate <- sinkComp[1];
+                sinkPin  <- sinkComp[2];
+                obj@gateList[[sinkGate]]@io[[sinkPin]] <-
+                    setVal(obj@gateList[[sinkGate]]@io[[sinkPin]],
+                           getVal(srcVal));
+            } else {
+                obj@io[[sink]] <-
+                    getVal(obj@io[[sink]], getVal(srcVal));
+            }
+        }
+    }
+
+    ## Now do the same to any compound gates in the gateList.
+    if (obj@type == "compound") {
+        for (i in 1:length(obj@gateList)) {
+            obj@gateList[[i]] <-
+                propagateCnxns(obj@gateList[[i]], inspect=inspect,
+                               prefix=paste0("| ", prefix));
+        }
+    }
+
+    return(obj);
+}
+
+
 ## See the tests below for examples of how to initialize your gate.
 setMethod("initialize",
           signature = "gate",
@@ -2016,10 +2078,9 @@ setMethod("initialize",
               assign("gateIDCounter", gateIDCounter, envir=.GlobalEnv);
 
               ## Set default values for args that can be omitted.
-              .Object@state <- gateIOList();
+              .Object@io <- gateIO();
               .Object@gateList  <-  list();
               .Object@cnxnList  <-  cnxnList();
-              .Object@defaultParams <- list();
               .Object@color <- "gray";
               .Object@shape <- "circle";
               .Object@nodetype <- "lower";
@@ -2035,65 +2096,97 @@ setMethod("initialize",
                   if (name == "")
                       stop("All initialization args to gate need names.");
 
-                  if (name == "io") {
-                      io <- args[["io"]];
-                      if (class(io) != "gateIO")
-                          stop("io arg must be a gateIO object.");
+                  ## We use grepl to search the list of slot names to find
+                  ## partial matches to the input args.  This allows us to
+                  ## make it work even if the names are not spelled out
+                  ## completely.
+                  noState <- TRUE;
+                  slotIndex <- grepl(paste0("^", name), slotNames("gate"));
+                  if (sum(slotIndex) == 1) {
+                      slotIndex <- which(slotIndex);
+                      slot(.Object, slotNames("gate")[slotIndex]) <-
+                          args[[name]];
+                      if (slotNames("gate")[slotIndex] == "io")
+                          noState <- FALSE;
+
                   } else {
-                      ## We use grepl to search the list of slot names to
-                      ## find partial matches to the input args.  This allows
-                      ## us to make it work even if the names are not spelled
-                      ## out completely.
-                      slotIndex <- grepl(paste0("^", name), slotNames("gate"));
-                      if (sum(slotIndex) == 1) {
-                          slotIndex <- which(slotIndex);
-                          slot(.Object, slotNames("gate")[slotIndex]) <-
-                              args[[name]];
-
-                      } else {
-                          stop("Ambiguous arguments to gate initialization.");
-                      }
+                      stop("Bad arguments to gate initialization.");
                   }
               }
-
-              ## Make a little recursive function to generate a statelist
-              ## from the io object and the gateList.
-              makeState <- function(io, gateList=list()) {
-                  ## Create a new gateIOList with io in the 'this' position.
-                  out <- gateIOList(this=io);
-
-                  ## Run through the gateList and add an entry for each gate.
-                  ## If this is an atomic gate, length(gateList)=0.
-                  if (length(gateList) > 0) {
-                      for (gateName in names(gateList)) {
-                          out <- add(out,
-                                     tag=gateName,
-                                     sublist=makeState(gateList[[gateName]]@state$this,
-                                                       gateList[[gateName]]@gateList))
-                      }
-                  }
-                  return(out);
-              }
-
+              if (noState)
+                  stop("Need some kind of input or output.");
 
               ## Decide what kind of gate this is to be.
               if (length(.Object@gateList) == 0) {
                   .Object@type <- "atomic";
-                  .Object@state$this <- io;
-              } else {
-                  .Object@type <- "compound";
-                  .Object@state <- makeState(io, gateList=.Object@gateList);
-              }
 
-              ## Now we have the pieces in place, construct the two transform
-              ## methods.
-              if (.Object@type == "compound") {
-                  ##show(.Object@cnxnList);
+                  ## Define transformOnce and transform for an atomic gate.
+                  .Object@transformOnce <-
+                      function(inspect=FALSE, prefix="") {
+
+                          if (inspect) {
+                              cat(prefix, "Entering atomic transformOnce.\n",
+                                  sep="");
+                              prefix <- paste0("| ", prefix);
+                              cat(formatVal(.Object@io, prefix=prefix),"\n");
+                          }
+
+                          ## Execute the transformation's definition.
+                          outList <-
+                              .Object@definition(inputs=.Object@io@inputs,
+                                                 params=.Object@io@params);
+
+                          ## Incorporate the outputs into the IO state record.
+                          .Object@io <- add(.Object@io, outputs=outList);
+
+                          ## Return the output list, for tidiness.
+                          return(outList);
+                      };
+                  ## For an atomic transform, this is almost the same as
+                  ## transformOnce, except for the tickMax arg, which doesn't
+                  ## do anything here.
+                  .Object@transform <- function(inputs,
+                                                tickMax=100,
+                                                inspect=FALSE, prefix="") {
+
+                      if (inspect) {
+                          cat(prefix, "Entering atomic transform.\n", sep="");
+                          prefix <- paste0("| ", prefix);
+                      }
+
+                      ## Checking that all the inputs are present.
+                      for (name in names(inputs)) {
+                          if (is.empty(inputs[[name]])) {
+                              cat(prefix, name, " is an empty gval.\n",
+                                  sep="");
+                              return(.Object@io@outputs);
+                          }
+                      }
+
+                      ## All the inputs are cool.  Update the internal io
+                      ## record.
+                      .Object@io <- add(.Object@io, inputs=inputs);
+
+                      ## Execute the gate.  The inputs and outputs (and
+                      ## params) are in the internal io object.
+                      outList <- .Object@transformOnce(inspect=inspect,
+                                                       prefix=prefix);
+                      return(outList);
+                  };
+
+                  ## There are no connections for an atomic gate, and the
+                  ## gateList is unnecessary, too.
+                  .Object@gateList <- list();
+                  .Object@cnxnList <- cnxnList();
+
+              } else {
+
+                  .Object@type <- "compound";
 
                   ## Make a function to execute each gate in the gateList.
                   ## Note that params are passed in with argList.
                   .Object@transformOnce <-
-                      function(state, inspect=FALSE, prefix="") {
+                      function(inputs, inspect=FALSE, prefix="") {
 
                           if (inspect) {
                               cat(prefix, "Entering compound transformOnce\n",
@@ -2101,26 +2194,10 @@ setMethod("initialize",
                               prefix <- paste0("| ", prefix);
                           }
 
-                          if (class(state) != "gateIOList")
-                              stop("transformOnce requires a gateIOList.");
+                          if (class(inputs) != "list")
+                              stop("transformOnce requires a list of inputs.");
 
-                          ## Use cnxnList to copy inputs into their places.
-                          for (src in names(.Object@cnxnList)) {
-                              for (sink in names(.Object@cnxnList[[src]])) {
-                                  if (inspect) {
-                                      cat(prefix, "  copying ", src, " to ",
-                                          sink, "\n", sep="");
-                                  }
-                                  .Object@stateList <-
-                                      setVal(.Object@stateList, sink,
-                                             getVal(.Object@stateList, src));
-                              }
-                          }
-
-                          .Object@stateList$this@inputs <-
-                              state$this@inputs;
-                          .Object@stateList$this@params <-
-                              state$this@params;
+                          propagateCnxns(.Object);
 
                           ## Execute each component gate.  Once.  Might
                           ## arrange to skip execution if the outputs are
@@ -2138,6 +2215,8 @@ setMethod("initialize",
                                       "\n", sep="");
                               }
 
+
+
                               subState <- subset(.Object@stateList,
                                                  expr=gateName);
 
@@ -2153,11 +2232,13 @@ setMethod("initialize",
                           return(outList);
 
                       };
-                  ## The transform() function accepts a bunch of named gval
-                  ## objects as input and an optional params list.
+                  ## The transform() function accepts a list of named gval
+                  ## objects as input.  If you need to set params, do it
+                  ## directly via adjustments to .Object@io@params.
                   .Object@transform <- function(...,
                                                 tickMax=100,
-                                                inspect=FALSE, prefix="") {
+                                                inspect=FALSE,
+                                                prefix="") {
 
                       if (inspect) {
                           cat(prefix, "Entering compound transform.\n",
@@ -2167,112 +2248,48 @@ setMethod("initialize",
 
                       args <- list(...);
 
-                      if (is.null(names(args)))
-                          stop("Input list to transform uses named args.");
+                      inputIndex <- grepl("^input", names(args));
+                      if (sum(inputIndex) == 1) {
+                          inputIndex <- which(inputIndex);
 
-                      ## Copy input args into stateList for the 'this' object.
-                      for (argName in names(args)) {
-                          if (argName == "params") {
-                              .Object@stateList$this@params <-
-                                  args[[argName]];
+                          if (class(args[[inputIndex]] == "list")) {
+                              .Object@io <- add(.Object@io,
+                                                inputs=args[[inputIndex]]);
                           } else {
-                              .Object@stateList$this@inputs[[argName]] <-
-                                  args[[argName]];
+                              stop("'inputs' list isn't a list.");
                           }
+                      } else {
+                          ## The args list might just be a list of gvals.
+                          ## Try adding them directly.
+                          .Object@io <- add(.Object@io, inputs=args);
                       }
 
                       ## If we don't have all the inputs yet, get out.
-                      if (is.empty(.Object@stateList$this, "inputs")) {
-                          return(.Object@stateList$this@outputs);
+                      if (is.empty(.Object@io, "inputs")) {
+                          return(.Object@io@outputs);
                       }
 
                       tick <- 0;
                       ## Keep executing transformOnce until the output isn't
                       ## empty any more.
-                      while (is.empty(.Object@stateList$this, "output")) {
+                      while (is.empty(.Object@io, "output")) {
                           tick <- tick + 1;
                           if (inspect) cat(prefix, "iteration: ", tick, "\n",
                                            sep="");
                           ## Generate some outputs.
-                          outputs <-
-                              .Object@transformOnce(state=.Object@stateList,
-                                                    inspect=inspect,
-                                                    prefix=prefix);
-
-                          ## Copy them into the stateList.
-                          for (outName in names(outputs)) {
-                              .Object@stateList$this@outputs[[outName]] <-
-                                  outputs[[outName]];
-                          }
+                          outList <- .Object@transformOnce(inspect=inspect,
+                                                           prefix=prefix);
 
                           ## Check for infinite loops.
                           if (tick >= tickMax) break;
                       }
 
-                      return(.Object@stateList$this@outputs);
+                      return(outList);
                   }
 
                   .Object@type="compound";
 
-              } else {
-
-                  ## This must be an atomic gate transform.
-                  .Object@transformOnce <-
-                      function(inputs, params, inspect=FALSE, prefix="") {
-
-                          if (inspect) {
-                              cat(prefix, "Entering atomic transformOnce.\n",
-                                  sep="");
-                              prefix <- paste0("| ", prefix);
-                              cat(formatVal(argList, prefix=prefix),"\n");
-                          }
-
-                          ## We hope inputs and params are lists.
-                          if (class(inputs) != "list")
-                              stop("Bad inputs to transformOnce.");
-
-                          ## Checking that names and types match.
-                          for (name in names(inputs)) {
-                              if (is.empty(inputs[[name]])) {
-                                  cat(prefix, name, " is an empty gval.\n",
-                                      sep="");
-                                  return(.Object@stateList$this@outputs);
-                              }
-                          }
-
-                          ## Execute the transformation's definition.
-                          outList <- .Object@definition(inputs=inputs,
-                                                        params=params);
-
-                          .Object@stateList$this@outputs <-
-                              add(.Object@stateList$this@outputs,
-                                  outputs=outList);
-
-                          return(argList);
-                      };
-                  ## For an atomic transform, this is the same as
-                  ## transformOnce, with the tickMax arg, which doesn't do
-                  ## anything here.
-                  .Object@transform <- function(inputs, params,
-                                                tickMax=100,
-                                                inspect=FALSE, prefix="") {
-
-                      if (inspect) {
-                          cat(prefix, "Entering atomic transform.\n", sep="");
-                          prefix <- paste0("| ", prefix);
-                      }
-
-                      outList <- .Object@transformOnce(inputs, params,
-                                                       inspect=inspect,
-                                                       prefix=prefix);
-                      return(outList);
-                  };
-                  ## There are no connections for an atomic gate, and the
-                  ## gateList is unnecessary, too.
-                  .Object@gateList <- list();
-                  .Object@cnxnList <- cnxnList();
               }
-
 
               validObject(.Object);
               return(.Object);
@@ -2421,14 +2438,14 @@ g.comp2 <- gate(gateList=list("AND1"=g.and, "AND2"=g.and, "XOR1"=g.xor,
 ## cl <- add(cl, "in1"="AND1:in1");
 
 ## These are more like tests of gateIO and gval
-if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "in2"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n O: out=1 (symbol: 0/1)")
-    stop("gate problem.");
+##if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "in2"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n O: out=1 (symbol: 0/1)")
+##    stop("gate problem.");
 
-if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
-    stop("second gate problem.");
+##if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
+##    stop("second gate problem.");
 
-if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
-    stop("third gate problem.");
+##if (formatVal(g.or@transformOnce(gateIOList("in1"=gval("1"), "out"=gval(type=binary)))) != "this:\n I: in1=1 (symbol: 0/1)\n O: out=[empty] (symbol: 0/1)")
+##    stop("third gate problem.");
 
 
 ############################################################################
