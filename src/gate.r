@@ -1953,8 +1953,8 @@ gate <- setClass(
             type="character"),
     validity=function(object) {
 
-        if (class(object@io) != "gateIO")
-            return("io must be a gateIO object");
+        if (class(object@state) != "gateIOList")
+            return("state must be a gateIOList object");
 
         if ((!is.null(object@definition)) &&
             (class(object@definition) != "function"))
@@ -2016,7 +2016,7 @@ setMethod("initialize",
               assign("gateIDCounter", gateIDCounter, envir=.GlobalEnv);
 
               ## Set default values for args that can be omitted.
-              .Object@io <- gateIO();
+              .Object@state <- gateIOList();
               .Object@gateList  <-  list();
               .Object@cnxnList  <-  cnxnList();
               .Object@defaultParams <- list();
@@ -2031,27 +2031,58 @@ setMethod("initialize",
               ## Parse constructor arguments.
               args <- list(...);
 
-              ## We use grepl to search the list of slot names to find
-              ## partial matches to the input args.  This allows us to make
-              ## it work even if the names are not spelled out completely.
               for (name in names(args)) {
-                  slotIndex <- grepl(paste0("^", name),
-                                     slotNames("gate"));
-                  if (sum(slotIndex) == 1) {
-                      slotIndex <- which(slotIndex);
-                      slot(.Object, slotNames("gate")[slotIndex]) <-
-                          args[[name]];
+                  if (name == "")
+                      stop("All initialization args to gate need names.");
 
+                  if (name == "io") {
+                      io <- args[["io"]];
+                      if (class(io) != "gateIO")
+                          stop("io arg must be a gateIO object.");
                   } else {
-                      stop("Ambiguous arguments to gate initialization.");
+                      ## We use grepl to search the list of slot names to
+                      ## find partial matches to the input args.  This allows
+                      ## us to make it work even if the names are not spelled
+                      ## out completely.
+                      slotIndex <- grepl(paste0("^", name), slotNames("gate"));
+                      if (sum(slotIndex) == 1) {
+                          slotIndex <- which(slotIndex);
+                          slot(.Object, slotNames("gate")[slotIndex]) <-
+                              args[[name]];
+
+                      } else {
+                          stop("Ambiguous arguments to gate initialization.");
+                      }
                   }
               }
+
+              ## Make a little recursive function to generate a statelist
+              ## from the io object and the gateList.
+              makeState <- function(io, gateList=list()) {
+                  ## Create a new gateIOList with io in the 'this' position.
+                  out <- gateIOList(this=io);
+
+                  ## Run through the gateList and add an entry for each gate.
+                  ## If this is an atomic gate, length(gateList)=0.
+                  if (length(gateList) > 0) {
+                      for (gateName in names(gateList)) {
+                          out <- add(out,
+                                     tag=gateName,
+                                     sublist=makeState(gateList[[gateName]]@state$this,
+                                                       gateList[[gateName]]@gateList))
+                      }
+                  }
+                  return(out);
+              }
+
 
               ## Decide what kind of gate this is to be.
               if (length(.Object@gateList) == 0) {
                   .Object@type <- "atomic";
+                  .Object@state$this <- io;
               } else {
                   .Object@type <- "compound";
+                  .Object@state <- makeState(io, gateList=.Object@gateList);
               }
 
               ## Now we have the pieces in place, construct the two transform
@@ -2242,21 +2273,6 @@ setMethod("initialize",
                   .Object@cnxnList <- cnxnList();
               }
 
-              ## Make a little recursive function to generate a statelist
-              ## from the io object and the gateList.
-              makeState <- function(io, gateList=list()) {
-                  out <- gateIOList(this=io);
-
-                  if (length(gateList) > 0) {
-                      for (gateName in names(gateList)) {
-                          out <- add(out,
-                                     tag=gateName,
-                                     sublist=makeState(gateList[[gateName]]@io,
-                                                       gateList[[gateName]]@gateList))
-                      }
-                  }
-                  return(out);
-              }
 
               validObject(.Object);
               return(.Object);
