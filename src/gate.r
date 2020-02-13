@@ -1642,13 +1642,13 @@ gate <- setClass(
 propagateCnxns <- function(obj, inspect=FALSE, prefix="") {
 
     if (inspect)
-        cat(prefix, "calling propagate...\n");
+        cat(prefix, "calling propagate...\n", sep="");
 
     if (class(obj) != "gate")
         stop("Propagate is an operation defined on gate objects.");
 
     ## Only compound gates have connection lists.
-    if (obj@type == "atomic") return(obj@io);
+    if (obj@type == "atomic") return(obj);
 
     ## Use cnxnList to copy inputs into their places.
     for (src in names(obj@cnxnList)) {
@@ -1666,22 +1666,27 @@ propagateCnxns <- function(obj, inspect=FALSE, prefix="") {
             srcVal <- obj@io[[src]];
         }
 
+
         for (sink in names(obj@cnxnList[[src]])) {
             if (inspect) {
-                cat(prefix, "  copying ", src, " to ",
-                    sink, "\n", sep="");
+                modifier <- "";
+                if (is.empty(srcVal)) modifier <- "not ";
+                cat(prefix, "  ", modifier, "copying ", src,
+                    " (", formatVal(srcVal), ") to ", sink,
+                    "\n", sep="");
             }
 
-            if (grepl(":", sink)) {
-                sinkComp <- strsplit(sink, ":")[[1]];
-                sinkGate <- sinkComp[1];
-                sinkPin  <- sinkComp[2];
-                obj@gateList[[sinkGate]]@io[[sinkPin]] <-
-                    setVal(obj@gateList[[sinkGate]]@io[[sinkPin]],
-                           getVal(srcVal));
-            } else {
-                obj@io[[sink]] <-
-                    setVal(obj@io[[sink]], getVal(srcVal));
+            if (!is.empty(srcVal)) {
+                if (grepl(":", sink)) {
+                    sinkComp <- strsplit(sink, ":")[[1]];
+                    sinkGate <- sinkComp[1];
+                    sinkPin  <- sinkComp[2];
+                    obj@gateList[[sinkGate]]@io[[sinkPin]] <-
+                        setVal(obj@gateList[[sinkGate]]@io[[sinkPin]],
+                               getVal(srcVal));
+                } else {
+                    obj@io[[sink]] <- setVal(obj@io[[sink]], getVal(srcVal));
+                }
             }
         }
     }
@@ -1689,14 +1694,15 @@ propagateCnxns <- function(obj, inspect=FALSE, prefix="") {
     ## Now do the same to any compound gates in the gateList.
     if (obj@type == "compound") {
         for (i in 1:length(obj@gateList)) {
-            if (inspect) cat(prefix, "propagating", names(obj@gateList)[i],"\n");
-            obj@gateList[[i]]@io <-
+            if (inspect) cat(prefix, "propagating ",
+                             names(obj@gateList)[i],"\n", sep="");
+            obj@gateList[[i]] <-
                 propagateCnxns(obj@gateList[[i]], inspect=inspect,
                                prefix=paste0("| ", prefix));
         }
     }
 
-    return(obj@io);
+    return(obj);
 }
 
 
