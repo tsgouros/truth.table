@@ -1654,8 +1654,8 @@ propagateCnxns <- function(obj, inspect=FALSE, prefix="") {
     for (src in names(obj@cnxnList)) {
 
         ## src is a name like "AND1:out" or "in1".  Figure out where its gval
-        ## lives.  For names like "in1", it will be in the io object.
-        ## Otherwise it's in the io object of the gate specified before the
+        ## lives.  For names like "in1", it will be in the io slot.
+        ## Otherwise it's in the io slot of the gate specified before the
         ## colon, i.e. "AND1" for "AND1:out".
         if (grepl(":", src)) {
             srcComp <- strsplit(src, ":")[[1]];
@@ -1693,13 +1693,17 @@ propagateCnxns <- function(obj, inspect=FALSE, prefix="") {
 
     ## Now do the same to any compound gates in the gateList.
     if (obj@type == "compound") {
-        for (i in 1:length(obj@gateList)) {
-            if (inspect) cat(prefix, "propagating ",
-                             names(obj@gateList)[i],"\n", sep="");
-            obj@gateList[[i]] <-
-                propagateCnxns(obj@gateList[[i]], inspect=inspect,
-                               prefix=paste0("| ", prefix));
+        for (name in names(obj@gateList)) {
+            if (inspect)
+                cat(prefix, name, "\n", sep="");
+            obj@gateList[[name]] <-
+                propagateCnxns(obj@gateList[[name]],
+                               inspect=inspect, prefix=paste0("| ", prefix));
         }
+
+        ## Maybe use lapply when we don't need inspect any more.
+        ##obj@gateList <- lapply(obj@gateList, propagateCnxns,
+        ##                       inspect=inspect, prefix=paste0("| ", prefix));
     }
 
     return(obj);
@@ -1758,181 +1762,150 @@ setMethod("initialize",
               ## Decide what kind of gate this is to be.
               if (length(.Object@gateList) == 0) {
                   .Object@type <- "atomic";
-
-                  ## Define transformOnce and transform for an atomic gate.
-                  .Object@transformOnce <-
-                      function(inspect=FALSE, prefix="") {
-
-                          if (inspect) {
-                              cat(prefix, "Entering atomic transformOnce.\n",
-                                  sep="");
-                              prefix <- paste0("| ", prefix);
-                              cat(formatVal(.Object@io, prefix=prefix),"\n");
-                          }
-
-                          ## Execute the transformation's definition.
-                          outList <-
-                              .Object@definition(inputs=.Object@io@inputs,
-                                                 params=.Object@io@params);
-
-                          ## Incorporate the outputs into the IO state record.
-                          .Object@io <- add(.Object@io, outputs=outList);
-
-                          ## Return the output list, for tidiness.
-                          return(outList);
-                      };
-                  ## For an atomic transform, this is almost the same as
-                  ## transformOnce, except for the tickMax arg, which doesn't
-                  ## do anything here.
-                  .Object@transform <- function(inputs,
-                                                tickMax=100,
-                                                inspect=FALSE, prefix="") {
-
-                      if (inspect) {
-                          cat(prefix, "Entering atomic transform.\n", sep="");
-                          prefix <- paste0("| ", prefix);
-                      }
-
-                      ## Checking that all the inputs are present.
-                      for (name in names(inputs)) {
-                          if (is.empty(inputs[[name]])) {
-                              cat(prefix, name, " is an empty gval.\n",
-                                  sep="");
-                              return(.Object@io@outputs);
-                          }
-                      }
-
-                      ## All the inputs are cool.  Update the internal io
-                      ## record.
-                      .Object@io <- add(.Object@io, inputs=inputs);
-
-                      ## Execute the gate.  The inputs and outputs (and
-                      ## params) are in the internal io object.
-                      outList <- .Object@transformOnce(inspect=inspect,
-                                                       prefix=prefix);
-                      return(outList);
-                  };
-
-                  ## There are no connections for an atomic gate, and the
-                  ## gateList is unnecessary, too.
-                  .Object@gateList <- list();
-                  .Object@cnxnList <- cnxnList();
-
               } else {
-
                   .Object@type <- "compound";
-
-                  ## Make a function to execute each gate in the gateList.
-                  ## Note that params are passed in with argList.
-                  .Object@transformOnce <- function(inspect=FALSE,
-                                                    prefix="") {
-
-                      if (inspect) {
-                          cat(prefix, "Entering compound transformOnce\n",
-                              sep="");
-                          prefix <- paste0("| ", prefix);
-                      }
-
-                      ## Execute each component gate.  Once.  Might
-                      ## arrange to skip execution if the outputs are
-                      ## already there, but that feature isn't here yet.
-                      for (gateName in names(.Object@gateList)) {
-
-                          gate <- .Object@gateList[[gateName]];
-
-                          if (inspect) {
-                              cat(prefix,
-                                  "calling: ", gateName, " with:\n",
-                                  formatVal(.Object@gateList[[gateName]]@io,
-                                            prefix=prefix),
-                                  "\n", sep="");
-                          }
-
-                          outList <- gate@transformOnce(inspect=inspect,
-                                                        prefix=prefix);
-
-                          ## Store the outputs in the io object.
-                          .Object@io <- add(.Object@io, outputs=outList);
-
-                      }
-
-                      return(outList);
-
-                  };
-                  ## The transform() function accepts a list of named gval
-                  ## objects as input.  If you need to set params, do it
-                  ## directly via adjustments to .Object@io@params.
-                  .Object@transform <- function(...,
-                                                tickMax=10,
-                                                inspect=FALSE,
-                                                prefix="") {
-
-                      if (inspect) {
-                          cat(prefix, "Entering compound transform.\n",
-                              sep="");
-                          prefix <- paste0("| ", prefix);
-                      }
-
-                      args <- list(...);
-
-                      inputIndex <- grepl("^input", names(args));
-                      if (sum(inputIndex) == 1) {
-                          inputIndex <- which(inputIndex);
-
-                          if (class(args[[inputIndex]]) == "list") {
-                              .Object@io <- add(.Object@io,
-                                                inputs=args[[inputIndex]]);
-                          } else {
-                              stop("'inputs' list isn't a list.");
-                          }
-                      } else {
-                          ## The args list might just be a list of gvals.
-                          ## Try adding them directly.
-                          .Object@io <- add(.Object@io, inputs=args);
-                      }
-
-                      ## If we don't have all the inputs yet, get out.
-                      if (is.empty(.Object@io, "inputs")) {
-                          return(.Object@io@outputs);
-                      }
-
-                      ## All the inputs are in place.  Propagate them (and
-                      ## anything else that's pending) throughout the whole
-                      ## gate structure.
-                      .Object <- propagateCnxns(.Object, inspect=inspect,
-                                                prefix=prefix);
-
-                      if (inspect) {
-                          cat(prefix, "Ready to run:\n", sep="");
-                          cat(prefix, formatVal(.Object, prefix=prefix),
-                              "\n", sep="");
-                      }
-
-                      tick <- 0;
-                      ## Keep executing transformOnce until the output isn't
-                      ## empty any more.
-                      while (is.empty(.Object@io, "output")) {
-                          tick <- tick + 1;
-                          if (inspect) cat(prefix, "iteration: ", tick, "\n",
-                                           sep="");
-                          ## Generate some outputs.
-                          outList <- .Object@transformOnce(inspect=inspect,
-                                                           prefix=prefix);
-
-                          ## Check for infinite loops.
-                          if (tick >= tickMax) break;
-                      }
-
-                      return(outList);
-                  }
-
-                  .Object@type="compound";
-
               }
 
               validObject(.Object);
               return(.Object);
           });
+
+setGeneric(name="transform",
+           def=function(object, ..., inspect=FALSE, prefix="", tickMax=100) {
+               standardGeneric("transform");
+           });
+
+setGeneric(name="transformOnce",
+           def=function(object, ..., inspect, prefix) {
+               standardGeneric("transformOnce");
+           });
+
+setMethod("transform",
+          signature = "gate",
+          definition= function(object, ...,
+                               inspect=FALSE, prefix="", tickMax=100) {
+              inputs <- list(...);
+              if (class(inputs[[1]]) == "list") inputs <- inputs[[1]];
+
+              ## Inputs should be a list of gvals.
+              if (sum(unlist(lapply(inputs,
+                                    function(x) { class(x) == "gval" }))) !=
+                  length(inputs)) {
+                  stop("Inputs must be a list of gvals.");
+              }
+
+              ## All the inputs are cool.  Update the internal io
+              ## record.
+              object@io <- add(object@io, inputs=inputs);
+
+              if (is.empty(object@io, "input")) return(object);
+
+              if (object@type == "atomic") {
+                  ## For an atomic transform, this is almost the same as
+                  ## transformOnce, except for the tickMax arg, which doesn't
+                  ## do anything here.
+                  if (inspect)
+                      cat(prefix, "Entering atomic transform.\n", sep="");
+
+                  ## Execute the gate.  The inputs and outputs (and
+                  ## params) are in the internal io object.
+                  object <- transformOnce(object, inputs=inputs,
+                                          inspect=inspect,
+                                          prefix=paste0("| ", prefix));
+              } else {
+                  if (inspect)
+                      cat(prefix, "Entering compound transform.\n", sep="");
+
+                  ## All the inputs are in place.  Propagate them (and
+                  ## anything else that's pending) throughout the whole
+                  ## gate structure.
+                  object <- propagateCnxns(object, inspect=inspect,
+                                           prefix=prefix);
+                  if (inspect) {
+                      cat(prefix, "Ready to run:\n", sep="");
+                      cat(prefix, formatVal(object, prefix=prefix),
+                          "\n", sep="");
+                  }
+
+                  tick <- 0;
+                  ## Keep executing transformOnce until the output isn't
+                  ## empty any more.
+                  while (is.empty(object@io, "output")) {
+                      tick <- tick + 1;
+                      if (inspect) cat(prefix, "iteration: ", tick, "\n",
+                                       sep="");
+
+                      ## Generate some outputs.
+                      object <- transformOnce(object,
+                                              inspect=inspect,
+                                              prefix=paste0("| ", prefix));
+
+                      ## All the inputs are in place.  Propagate them (and
+                      ## anything else that's pending) throughout the whole
+                      ## gate structure.
+                      object <- propagateCnxns(object, inspect=inspect,
+                                               prefix=paste0("| ", prefix));
+
+
+                      ## Check for infinite loops.
+                      if (tick >= tickMax) break;
+                  }
+              }
+              return(object);
+          });
+
+
+setMethod("transformOnce",
+          signature = "gate",
+          definition= function(object,
+                               inspect=FALSE, prefix="", tickMax=100) {
+
+              if (object@type == "atomic") {
+                  if (inspect) {
+                      cat(prefix, "Entering atomic transformOnce, with:\n",
+                          sep="");
+                      cat(formatVal(object@io,
+                                    prefix=paste0(prefix, "  ")),"\n");
+                  }
+
+                  if (!is.empty(object@io, "inputs")) {
+                      ## Execute the transformation's definition.
+                      outList <- object@definition(inputs=object@io@inputs,
+                                                   params=object@io@params);
+
+                      ## Incorporate the outputs into the IO state record.
+                      object@io <- add(object@io, outputs=outList);
+                  }
+
+              } else {
+                  if (inspect) {
+                      cat(prefix, "Entering compound transformOnce\n",
+                          sep="");
+                  }
+
+                  if (!is.empty(object@io, "inputs")) {
+                      ## Execute each component gate.  Once.  Might arrange
+                      ## to skip execution if the outputs are already there,
+                      ## but that feature isn't here yet.
+                      for (name in names(object@gateList)) {
+                          if (inspect)
+                              cat(prefix, "executing ", name, "\n", sep="");
+                          object@gateList[[name]] <-
+                              transformOnce(object@gateList[[name]],
+                                            inspect=inspect,
+                                            prefix=paste0("| ", prefix));
+                      }
+
+                      ## This would also work, might be quicker, but won't be
+                      ## able to show you the gate name with inspect.
+                      ## object@gateList <-
+                      ##    lapply(object@gateList, transformOnce,
+                      ##           inspect=inspect, prefix=paste0("| ", prefix));
+                  }
+              }
+              return(object);
+          });
+
 
 setMethod("formatVal",
           signature = "gate",
