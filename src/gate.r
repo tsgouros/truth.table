@@ -1141,7 +1141,7 @@ setMethod("formatVal",
                       outstr <- paste0(outstr, "\n", prefix, "params:\n",
                                        paste0(out, collapse="\n"));
                   } else {
-                      outstr <- paste0(outstr, "\nNo params.");
+                      outstr <- paste0(outstr, "\n", prefix, "No params.");
                   }
 
               } else {
@@ -2043,12 +2043,11 @@ g.comp2 <- gate(gateList=list("AND1"=g.and, "AND2"=g.and, "XOR1"=g.xor,
                                  "in2"=gval(type=binary)),
                           o=list("out"=gval(type=binary))));
 
+if (formatVal(g.comp) != "compound (4)\nio:\n  I: in1=[empty] (symbol: 0/1), in2=[empty] (symbol: 0/1)\n  O: out=[empty] (symbol: 0/1)\ngateList:\nAND1:\n| atomic (3)\n| io:\n|   I: in1=[empty] (symbol: 0/1), in2=[empty] (symbol: 0/1)\n|   O: out=[empty] (symbol: 0/1)\nAND2:\n| atomic (3)\n| io:\n|   I: in1=[empty] (symbol: 0/1), in2=[empty] (symbol: 0/1)\n|   O: out=[empty] (symbol: 0/1)\nXOR1:\n| atomic (1)\n| io:\n|   I: in1=[empty] (symbol: 0/1), in2=[empty] (symbol: 0/1)\n|   O: out=[empty] (symbol: 0/1)\ncnxnList:\n  in1 --> AND1:in1(31), AND2:in2(32)\n  in2 --> AND2:in1(33), AND1:in2(34)\n  AND1:out --> XOR1:in1(36)\n  AND2:out --> XOR1:in2(38)\n  XOR1:out --> out(40)")
+    stop("First gate problem.");
 
-
-##                           cl <- cnxnList("AND2:out"="AND3:in1", "AND3:out"="OR1:in1,OR2:in2");
-## cl <- add(cl, "AND3:out"="AND4:in2");
-## cl <- add(cl, "in1"="AND1:in1");
-
+if (formatVal(transform(g.comp2, inputs=list("in1"=gval("1",binary),"in2"=gval("1",binary)),tickMax=75)) != "compound (5)\nio:\n  I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n  O: out=0 (symbol: 0/1)\ngateList:\nAND1:\n| atomic (3)\n| io:\n|   I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n|   O: out=1 (symbol: 0/1)\nAND2:\n| atomic (3)\n| io:\n|   I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n|   O: out=1 (symbol: 0/1)\nXOR1:\n| atomic (1)\n| io:\n|   I: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\n|   O: out=0 (symbol: 0/1)\nC1:\n| compound (4)\n| io:\n|   I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\n|   O: out=0 (symbol: 0/1)\n| gateList:\n| AND1:\n| | atomic (3)\n| | io:\n| |   I: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\n| |   O: out=0 (symbol: 0/1)\n| AND2:\n| | atomic (3)\n| | io:\n| |   I: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\n| |   O: out=0 (symbol: 0/1)\n| XOR1:\n| | atomic (1)\n| | io:\n| |   I: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\n| |   O: out=0 (symbol: 0/1)\n| cnxnList:\n|   in1 --> AND1:in1(31), AND2:in2(32)\n|   in2 --> AND2:in1(33), AND1:in2(34)\n|   AND1:out --> XOR1:in1(36)\n|   AND2:out --> XOR1:in2(38)\n|   XOR1:out --> out(40)\ncnxnList:\n  in1 --> AND1:in1(47), AND2:in2(48)\n  in2 --> AND2:in1(49), AND1:in2(50)\n  AND1:out --> XOR1:in1(52)\n  AND2:out --> XOR1:in2(53), C1:in2(54)\n  XOR1:out --> C1:in1(56)\n  C1:out --> out(58)")
+    stop("Second gate problem.");
 
 ############################################################################
 ## PROBABILISTIC RESULTS
