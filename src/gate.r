@@ -1809,7 +1809,7 @@ setMethod("transform",
 
                   ## Execute the gate.  The inputs and outputs (and
                   ## params) are in the internal io object.
-                  object <- transformOnce(object, inputs=inputs,
+                  object <- transformOnce(object,
                                           inspect=inspect,
                                           prefix=paste0("| ", prefix));
               } else {
@@ -2923,12 +2923,12 @@ setMethod("export",
 ## Testing truthTable.
 tt <- truthTable();
 
-## tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("0"),"in2"=gval("0"))));
-## tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("0"),"in2"=gval("1"))));
-## tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("0"))));
-## tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("1"))));
-## tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("1"))));
-## tt <- add(tt, g.and@transformOnce(gateIOList("in1"=gval("1"),"in2"=gval("1"))));
+tt <- add(tt, transform(g.and, "in1"=gval("0"),"in2"=gval("0"))@io);
+tt <- add(tt, transform(g.and, "in1"=gval("0"),"in2"=gval("1"))@io);
+tt <- add(tt, transform(g.and, "in1"=gval("1"),"in2"=gval("0"))@io);
+tt <- add(tt, transform(g.and, "in1"=gval("1"),"in2"=gval("1"))@io);
+tt <- add(tt, transform(g.and, "in1"=gval("1"),"in2"=gval("1"))@io);
+tt <- add(tt, transform(g.and, "in1"=gval("1"),"in2"=gval("1"))@io);
 
 
 if (formatVal(tt) != "[[1]]\nI: in1=0 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[2]]\nI: in1=0 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[3]]\nI: in1=1 (symbol: 0/1), in2=0 (symbol: 0/1)\nO: out=0 (1) 1 (0) \n\n[[4]]\nI: in1=1 (symbol: 0/1), in2=1 (symbol: 0/1)\nO: out=0 (0) 1 (1) \n\n")
