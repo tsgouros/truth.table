@@ -1410,6 +1410,30 @@ setMethod("names",
           signature="gateIO",
           definition=function(x) { return(c(names(x@inputs),
                                             names(x@outputs))); });
+## Clear the output list values.
+setGeneric(name="addParam",
+           def=function(object, ...) {
+               standardGeneric("addParam");
+           });
+
+setMethod("addParam",
+          signature="gateIO",
+          definition=function(object, ...) {
+
+              args=list(...);
+              ## Note that all params must have names.
+              for (name in names(args)) {
+                  object@params[[name]] <- args[[name]];
+              }
+              return(object);
+          });
+
+##
+## You can use these to access and change members of a gateIO object, but you
+## can't add things with them, except for the params.  Use add() if you want
+## to insert new entries for data.  Use addParam() to add an entry to the
+## parameter list.
+##
 setMethod("[[",
           signature="gateIO",
           definition=function(x, i, j, ...) {
@@ -1419,6 +1443,7 @@ setMethod("[[",
 
               if (i %in% names(x@inputs)) return(x@inputs[[i]]);
               if (i %in% names(x@outputs)) return(x@outputs[[i]]);
+              if (i %in% names(x@params)) return(x@params[[i]]);
           });
 
 setMethod("$",
@@ -1451,6 +1476,8 @@ setMethod("[[<-",
                   } else {
                       x@outputs[[i]] <- setVal(x@outputs[[i]], value);
                   }
+              } else if (i %in% names(x@params)) {
+                  x@params[[i]] <- value;
               }
               return(x);
           });
