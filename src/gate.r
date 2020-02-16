@@ -2011,6 +2011,129 @@ setMethod("describe",
           });
 
 
+setGeneric(name="setParam",
+           def=function(object, ...) {
+               standardGeneric("setParam");
+           });
+
+##
+## Use this to set params objects attached to each gate.  You can do this:
+##  setParam(gate, a=2, b=3) or setParam(gate, "AND2", a=2, b=3) or
+##  setParam(gate, "C1.AND2", params=(a=2, b=3))  All params must have
+##  names, and the sub-gate name must be the second argument if it is used.
+##
+setMethod("setParam",
+          signature="gate",
+          definition=function(object, ...) {
+
+              args=list(...);
+              ## Look for a no-name argument.
+              gateIndex <- grepl("^$", names(args));
+              if (sum(gateIndex) > 1) stop("ambiguous arguments.");
+              if (sum(gateIndex) == 0) {
+                  ## No no-name arg means operate on this gate.  Are the
+                  ## args loose in the arglist, or all in an 'inputs' list?
+                  if ("inputs" %in% names(args)) {
+                      for (name in names(args[["inputs"]])) {
+                          object@io@params[[name]] <- args[["inputs"]][[name]];
+                      }
+                  } else {
+                      for (name in names(args)) {
+                          object@io@params[[name]] <- args[[name]];
+                      }
+                  }
+              } else {
+                  ## We are operating on a member gate of this gate.
+                  gateIndex <- which(gateIndex);  ## <<- Hope this is 1.
+                  gateName <- args[[gateIndex]];
+
+                  ## Lost the first arg for the inputs list.
+                  inputs <- as.list(unlist(args)[2:length(args)]);
+                  if (gateName == "this") {
+                      object <- setParam(object, inputs=inputs);
+                  } else {
+                      if (grepl("\\.", gateName)) {
+                          nameItems <- strsplit(gateName, "\\.")[[1]];
+                          gate <- object@gateList[[nameItems[1]]];
+                          subGate <- paste0(nameItems[2:length(nameItems)]);
+                          if (!is.null(gate)) {
+                              object@gateList[[nameItems[1]]] <-
+                                  setParam(object@gateList[[nameItems[1]]],
+                                           subGate,
+                                           inputs=inputs);
+                          }
+                      } else {
+                          for (name in names(inputs)) {
+                              object@gateList[[gateName]]@io@params[[name]] <-
+                                  inputs[[name]];
+                          }
+                      }
+                  }
+              }
+              return(object);
+          });
+
+##
+## You can use these to access and change members of a gate object, but you
+## can't add things with them.  Use setParam() to add an entry to the
+## parameter list.
+##
+setMethod("[[",
+          signature="gate",
+          definition=function(x, i, j, ...) {
+
+              if (class(i) != "character")
+                  stop("Use a name to select a gateIO object.");
+
+              if (i == "inputs") return(x@io@inputs);
+              if (i == "outputs") return(x@io@outputs);
+              if (i == "params") return(x@io@params);
+              if (i %in% names(x@io@inputs)) return(x@io@inputs[[i]]);
+              if (i %in% names(x@io@outputs)) return(x@io@outputs[[i]]);
+              if (i %in% names(x@gateList)) return(x@gateList[[i]]);
+              if (i %in% names(x@io@params)) return(x@io@params[[i]]);
+          });
+
+setMethod("$",
+          signature="gate",
+          definition=function(x, name) { return(x[[name]]); });
+
+setMethod("$<-",
+          signature="gate",
+          definition=function(x, name, value) {
+              x[[name]] <- value;
+              return(x);
+          });
+
+
+setMethod("[[<-",
+          signature="gate",
+          definition=function(x, i, j, ..., value) {
+              if (class(i) != "character")
+                  stop("Use a name to select a gateIO object.");
+
+              if (i %in% names(x@io@inputs)) {
+                  if (class(value) == "gval") {
+                      x@io@inputs[[i]] <- value;
+                  } else {
+                      x@io@inputs[[i]] <- setVal(x@io@inputs[[i]], value);
+                  }
+              } else if (i %in% names(x@io@outputs)) {
+                  if (class(value) == "gval") {
+                      x@io@outputs[[i]] <- value;
+                  } else {
+                      x@io@outputs[[i]] <- setVal(x@io@outputs[[i]], value);
+                  }
+              } else if (i %in% names(x@io@params)) {
+                  x@io@params[[i]] <- value;
+              }
+              return(x);
+          });
+
+
+
+
+
 ## Some testing of the gate object.
 g.xor <- gate(def=function(...) {
     args <- list(...)[[1]];
