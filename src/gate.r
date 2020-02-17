@@ -763,6 +763,17 @@ gval <- setClass(
     slots=c(numVal="numeric", symVal="character", type="type"),
     validity= function(object) {
         if (class(object@type) != "type") return("Need a type for type.");
+        if (object@type@baseType == "symbol") {
+            if (class(object@symVal) != "character")
+                return("Symbol type requires character values.");
+        } else {
+            ## Numeric values can be NaN, but not NA.
+            if (is.na(object@numVal) && !is.nan(object@numVal))
+                return("NA is not a permitted value for a gval.")
+        }
+        if (!(check(object@type, object@symVal) ||
+              check(object@type, object@numVal)))
+            return(paste("data is not of type", object@type));
         return(TRUE);
     });
 
@@ -774,9 +785,14 @@ setMethod("initialize",
           definition=function(.Object, ...) {
               args <- list(...);
 
+              ## Numeric values can be NaN, but not NA.
+              if (is.na(args[[1]]) && !is.nan(args[[1]]))
+                  stop("Cannot use NA for a gval.")
+
               if (is.null(names(args))) {
+                  ## No argument names, sigh.
                   ## This is either gval("0", typeName) or gval("0") and gets
-                  ## the default type.
+                  ## the default type or it's gval(typeName)
                   if (length(args) == 2) {
                       .Object@type <- args[[2]];
                       if (check(.Object@type, args[[1]])) {
@@ -788,8 +804,17 @@ setMethod("initialize",
                       } else {
                           stop("Given value and type do not match.");
                       }
+                  } else if ((length(args) == 1) &&
+                             (class(args[[1]]) == "type")) {
+                      .Object@type <- args[[1]];
+                      if (.Object@type@baseType == "symbol") {
+                          .Object@symVal <- "";
+                      } else {
+                          .Object@numVal <- NaN;
+                      }
                   } else {
-                      ## No type is specified, so we will try to guess.
+                      ## No type is specified, so we will try to guess.  This
+                      ## is dangerous territory, so don't do this.
                       if (is.character(args[[1]])) {
                           .Object@type <- binary;
                           .Object@symVal <- args[[1]];
@@ -812,7 +837,11 @@ setMethod("initialize",
                           .Object@numVal <- args[["symVal"]];
                       } else if ("value" %in% names(args)) {
                           .Object@type <- args[["type"]];
-                          .Object@numVal <- args[["value"]];
+                          if (.Object@type@baseType == "symbol") {
+                              .Object@symVal <- args[["value"]];
+                          } else {
+                              .Object@numVal <- args[["value"]];
+                          }
                       } else {
                           if (length(args) == 1) {
                               ## This is (we hope) a type with no value, so
@@ -3539,7 +3568,9 @@ gate.filterEdgeList <- function(edgeList, nodeList) {
             from <- findOriginID(edgeList$toLabel[i], edgeList, nodeList);
             fromID <- as.numeric(from[1]);
 
-            if (fromID == 0) stop("bad connection in edgeList.");
+            if (fromID == 0)
+                stop(paste0("Bad connection in edgeList:",
+                            edgeList$toLabel[i]));
 
             newEdgeList <- rbind(newEdgeList,
                                  data.frame(id=edgeList$id[i],
