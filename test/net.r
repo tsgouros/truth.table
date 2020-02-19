@@ -24,7 +24,7 @@ makeNerve.fn <- function(name, fn, nInputs, x=1, y=2) {
 
     inputs <- c();
     for (i in 1:nInputs) {
-        inputs <- c(inputs, sprintf("\"in%.2d\"=gval(type=float)", i));
+        inputs <- c(inputs, sprintf("\"in%.3d\"=gval(type=float)", i));
     }
 
     gname <- deparse(name);
@@ -47,7 +47,7 @@ exec.fn <- function(name, ..., type="float") {
     args <- list(...);
     out <- c();
     for (i in 1:length(args)) {
-        out <- c(out, sprintf("\"in%.2d\"=gval(%f, \"type\"=float)",
+        out <- c(out, sprintf("\"in%.3d\"=gval(%f, \"type\"=float)",
                               i, args[[i]]));
     }
     return(paste0("transform(", name, ",",
@@ -75,6 +75,7 @@ testf <- function(...) {
     return(list("out"=gval(sumArgs/length(gvArgs), float)));
 }
 
+
 nerve <- function(...) {
     args <- list(...);
     gvArgs <- args[["inputs"]];
@@ -98,7 +99,7 @@ makeLayer.fn <- function(name, fn, nInputs, nOutputs) {
 
     inputs <- c();
     for (i in 1:nInputs) {
-        inputs <- c(inputs, sprintf("\"in%.2d\"=gval(type=float)", i));
+        inputs <- c(inputs, sprintf("\"in%.3d\"=gval(type=float)", i));
     }
 
     ## Make an atomic gate to use.
@@ -108,12 +109,12 @@ makeLayer.fn <- function(name, fn, nInputs, nOutputs) {
                      ",io=gateIO(i=list(",
                      paste0(inputs, collapse=","),
                      "),o=list(\"out\"=gval(type=float)),",
-                     "params=list(weights=rep(1/", nOutputs, ",", nOutputs,")),",
+                     "params=list(weights=rep(1/", nInputs, ",", nInputs,")),",
                      "name=\"", subName, "\"));");
 
     gates <- c();
     for (i in 1:nOutputs) {
-        gates <- c(gates, sprintf("\"nerve%.2d\"=%s", i, subName));
+        gates <- c(gates, sprintf("\"nerve%.3d\"=%s", i, subName));
     }
 
     gateList <- sprintf("list(%s)",
@@ -123,15 +124,15 @@ makeLayer.fn <- function(name, fn, nInputs, nOutputs) {
     for (i in 1:nInputs) {
         subCnxns <- c();
         for (j in 1:nOutputs) {
-            subCnxns <- c(subCnxns, sprintf("\"nerve%.2d:in%.2d\"", j, i));
+            subCnxns <- c(subCnxns, sprintf("\"nerve%.3d:in%.3d\"", j, i));
         }
 
-        cnxns <- c(cnxns, sprintf("\"in%.2d\"=cnxns(%s)", i,
+        cnxns <- c(cnxns, sprintf("\"in%.3d\"=cnxns(%s)", i,
                    paste0(subCnxns, collapse=",")));
     }
 
     for (j in 1:nOutputs) {
-        cnxns <- c(cnxns, sprintf("\"nerve%.2d:out\"=\"out%.2d\"", j, j));
+        cnxns <- c(cnxns, sprintf("\"nerve%.3d:out\"=\"out%.3d\"", j, j));
     }
 
     cnxnList <- sprintf("cnxnList(%s)",
@@ -139,11 +140,11 @@ makeLayer.fn <- function(name, fn, nInputs, nOutputs) {
 
     ins <- c();
     for (i in 1:nInputs) {
-        ins <- c(ins, sprintf("\"in%.2d\"=gval(type=float)", i));
+        ins <- c(ins, sprintf("\"in%.3d\"=gval(type=float)", i));
     }
     outs <- c();
     for (j in 1:nOutputs) {
-        outs <- c(outs, sprintf("\"out%.2d\"=gval(type=float)", j));
+        outs <- c(outs, sprintf("\"out%.3d\"=gval(type=float)", j));
     }
 
     gateIOList <- sprintf("gateIO(i=list(%s), o=list(%s))",
@@ -205,65 +206,16 @@ makeTidyNet.fn <- function(nInputs, widths, fn) {
         layerNum <- layerNum + 1;
         layerGName <- sprintf("%s%.3d", layerRootName, layerNum);
         layerGNames <- c(layerGNames, layerGName);
-        layerFName <- sprintf("%s%.3dd", layerFRoot, layerNum);
-        out <- paste0(out, makeLayer.fn(layerFName,
+        out <- paste0(out, makeLayer.fn(layerGName,
                                         fn, layerInputs, width), ";\n");
 
-        layerFNames <- c(layerFNames, layerFName);
-
-        ## Lists we need to produce:
-        ## list of subgates
-        subGates <- c();
-        ## connection list
-        cnxnList <- c();
-        ## input and output lists
-        inputList <- c();
-        outputList <- c();
-
-        for (i in 1:width)
-            subGates <- c(subGates, sprintf("\"%s%.3d\"=%s",
-                                            layerFRoot, i, layerFName));
-
-        inCnxns <- c();
-        outCnxns <- c();
-        inputs <- c();
-        outputs <- c();
-        for (i in 1:layerInputs) {
-            subCnxns <- c();
-            for (j in 1:width) {
-                subCnxns <- c(subCnxns, sprintf("\"%s%.3d:in%.3d\"",
-                                                layerFRoot, j, i));
-            }
-            inCnxns <- c(inCnxns,
-                         paste0(sprintf("\"in%.3d\"=cnxns(", i),
-                                paste0(subCnxns, collapse=","), ")"));
-
-            inputs <- c(inputs, sprintf("\"in%.3d\"=gval(type=float)", i));
-        }
-
-        for (j in 1:width) {
-            outCnxns <- c(outCnxns,
-                          paste0(sprintf("\"%s%.3d:out\"", layerFRoot, layerNum),
-                                 sprintf("=cnxns(\"out%.3d\")", j)));
-            outputs <- c(outputs, sprintf("\"out%.3d\"=gval(type=float)", j));
-        }
-
-        out <- paste0(out,
-                      sprintf("%s <- gate(gateList=list(", layerGName),
-                      paste0(subGates, collapse=",\n"), "),\n",
-                      "cnxn=cnxnList(",
-                      paste0(inCnxns, collapse=",\n"), ",\n",
-                      paste0(outCnxns, collapse=",\n"), "),\n",
-                      "io=gateIO(i=list(",
-                      paste0(inputs, collapse=","), "),\n",
-                      "o=list(",
-                      paste0(outputs, collapse=","), "))); \n");
+        layerGNames <- c(layerGNames, layerGName);
 
         ## Record a little description of this layer.
         layers[[layerNum]] <- list("name"=sprintf("layer%.3d", layerNum),
                                    "gname"=layerGName,
-                                   "numInputs"=length(inputs),
-                                   "numOutputs"=length(outputs));
+                                   "numInputs"=layerInputs,
+                                   "numOutputs"=width);
 
         ## For the next layer, the number of inputs for each node
         ## should be the number of outputs from the current layer.
@@ -278,25 +230,22 @@ makeTidyNet.fn <- function(nInputs, widths, fn) {
     ##               paste0(cnxns, collapse=",\n"),
     ##               "))");
 
+    subCnxns <- c();
     prevLayerOutputs <- c();
     for (i in 1:nInputs) {
         prevLayerOutputs <- c(prevLayerOutputs, sprintf("in%.3d", i));
+        ## Grab the inputs for the first layer.
+        subCnxns <- c(subCnxns, sprintf("\"%s\"=cnxns(\"%s:in%.3d\")",
+                                        prevLayerOutputs[i],
+                                        layers[[1]]$name, i));
     }
 
     subGates <- c();
-    subCnxns <- c();
     inputs <- c();
     outputs <- c();
     for (i in 1:length(layers)) {
         subGates <- c(subGates, sprintf("\"%s\"=%s",
                                         layers[[i]]$name, layers[[i]]$gname));
-
-        for (j in 1:length(prevLayerOutputs)) {
-            ## First the inputs for this layer...
-            subCnxns <- c(subCnxns, sprintf("\"%s\"=cnxns(\"%s:in%.3d\")",
-                                            prevLayerOutputs[j],
-                                            layers[[i]]$name, j));
-        }
         ## ... now the outputs.
         for (j in 1:layers[[i]]$numOutputs) {
             if (i < length(layers)) {
@@ -309,6 +258,7 @@ makeTidyNet.fn <- function(nInputs, widths, fn) {
                                   layers[[i]]$name, j, target, j));
         }
 
+        prevLayerOutputs <- c();
         for (j in 1:layers[[i]]$numOutputs) {
             prevLayerOutputs <- c(prevLayerOutputs,
                                   sprintf("%s:out%.3d", layers[[i]]$name, j));
@@ -316,11 +266,11 @@ makeTidyNet.fn <- function(nInputs, widths, fn) {
     }
 
     for (i in 1:layers[[1]]$numInputs) {
-        inputs <- c(inputs, sprintf("\"in%.3d\"=gval(float)", i));
+        inputs <- c(inputs, sprintf("\"in%.3d\"=gval(type=float)", i));
     }
 
     for (i in 1:layers[[length(layers)]]$numOutputs) {
-        outputs <- c(outputs, sprintf("\"out%.3d\"=gval(float)", i));
+        outputs <- c(outputs, sprintf("\"out%.3d\"=gval(type=float)", i));
     }
 
     out <- paste0(out,
@@ -336,47 +286,60 @@ makeTidyNet.fn <- function(nInputs, widths, fn) {
     return(out);
 }
 
+## > a <- makeTidyNet.fn(2, c(10,11,3), nerve)
+## > eval(parse(text=a))
+## > nl <- gate.nodeList(giant)
+## > el <- gate.edgeList(giant)
+## > nlf <- gate.filterNodeList(nl)
+## > elf <- gate.filterEdgeList(el, nl)
+## > igr <- create_graph()
+## > igr2 <- igr %>% add_nodes_from_table(table=nlf, label_col=label)
+## > igr3 <- igr2 %>% add_edges_from_table(table=elf, from_col=from, to_col=to, from_to_map=id_external)
+## > igr3 %>% generate_dot() %>% cat(file="dot.gv")
+## >
 
 
-makeNerve("g.nerve", fn=testf, 4)
 
-g.nn <- gate(gateList=list("nn1-1"=g.nerve, "nn2-1"=g.nerve, "nn3-1"=g.nerve, "nn4-1"=g.nerve, "nn1-2"=g.nerve, "nn2-2"=g.nerve, "nn3-2"=g.nerve, "nn4-2"=g.nerve, "nn1-3"=g.nerve),
-             cnxn=cnxnList("in01"=cnxns("nn1-1:in01","nn2-1:in01","nn3-1:in01","nn4-1:in01"),
-                           "in02"=cnxns("nn1-1:in02","nn2-1:in02","nn3-1:in02","nn4-1:in02"),
-                           "in03"=cnxns("nn1-1:in03","nn2-1:in03","nn3-1:in03","nn4-1:in03"),
-                           "in04"=cnxns("nn1-1:in04","nn2-1:in04","nn3-1:in04","nn4-1:in04"),
-                           "nn1-1:out"=cnxns("nn1-2:in01","nn2-2:in01","nn3-2:in01","nn4-2:in01"),
-                           "nn2-1:out"=cnxns("nn1-2:in02","nn2-2:in02","nn3-2:in02","nn4-2:in02"),
-                           "nn3-1:out"=cnxns("nn1-2:in03","nn2-2:in03","nn3-2:in03","nn4-2:in03"),
-                           "nn4-1:out"=cnxns("nn1-2:in04","nn2-2:in04","nn3-2:in04","nn4-2:in04"),
-                           "nn1-2:out"=cnxns("nn1-3:in01"),
-                           "nn2-2:out"=cnxns("nn1-3:in02"),
-                           "nn3-2:out"=cnxns("nn1-3:in03"),
-                           "nn4-2:out"=cnxns("nn1-3:in04"),
-                           "nn1-3:out"=cnxns("out")),
-             io=gateIO(i=list("in01"=gval(type=float),
-                              "in02"=gval(type=float),
-                              "in03"=gval(type=float),
-                              "in04"=gval(type=float)),
-                       o=list("out"=gval(type=float)),
-                       params=list(2,1)));
 
-#makeCompound <- function(name,
+## makeNerve("g.nerve", fn=testf, 4)
 
-makeNerve("g.ner", fn=testf, 2)
+## g.nn <- gate(gateList=list("nn1-1"=g.nerve, "nn2-1"=g.nerve, "nn3-1"=g.nerve, "nn4-1"=g.nerve, "nn1-2"=g.nerve, "nn2-2"=g.nerve, "nn3-2"=g.nerve, "nn4-2"=g.nerve, "nn1-3"=g.nerve),
+##              cnxn=cnxnList("in01"=cnxns("nn1-1:in01","nn2-1:in01","nn3-1:in01","nn4-1:in01"),
+##                            "in02"=cnxns("nn1-1:in02","nn2-1:in02","nn3-1:in02","nn4-1:in02"),
+##                            "in03"=cnxns("nn1-1:in03","nn2-1:in03","nn3-1:in03","nn4-1:in03"),
+##                            "in04"=cnxns("nn1-1:in04","nn2-1:in04","nn3-1:in04","nn4-1:in04"),
+##                            "nn1-1:out"=cnxns("nn1-2:in01","nn2-2:in01","nn3-2:in01","nn4-2:in01"),
+##                            "nn2-1:out"=cnxns("nn1-2:in02","nn2-2:in02","nn3-2:in02","nn4-2:in02"),
+##                            "nn3-1:out"=cnxns("nn1-2:in03","nn2-2:in03","nn3-2:in03","nn4-2:in03"),
+##                            "nn4-1:out"=cnxns("nn1-2:in04","nn2-2:in04","nn3-2:in04","nn4-2:in04"),
+##                            "nn1-2:out"=cnxns("nn1-3:in01"),
+##                            "nn2-2:out"=cnxns("nn1-3:in02"),
+##                            "nn3-2:out"=cnxns("nn1-3:in03"),
+##                            "nn4-2:out"=cnxns("nn1-3:in04"),
+##                            "nn1-3:out"=cnxns("out")),
+##              io=gateIO(i=list("in01"=gval(type=float),
+##                               "in02"=gval(type=float),
+##                               "in03"=gval(type=float),
+##                               "in04"=gval(type=float)),
+##                        o=list("out"=gval(type=float)),
+##                        params=list(2,1)));
 
-g.n <- gate(gateList=list("nn1-1"=g.ner, "nn2-1"=g.ner, "nn1-2"=g.ner, "nn2-2"=g.ner, "nn1-3"=g.ner),
-             cnxn=cnxnList("in01"=cnxns("nn1-1:in01","nn2-1:in01"),
-                           "in02"=cnxns("nn1-1:in02","nn2-1:in02"),
-                           "nn1-1:out"=cnxns("nn1-2:in01","nn2-2:in01"),
-                           "nn2-1:out"=cnxns("nn1-2:in02","nn2-2:in02"),
-                           "nn1-2:out"=cnxns("nn1-3:in01"),
-                           "nn2-2:out"=cnxns("nn1-3:in02"),
-                           "nn1-3:out"=cnxns("out")),
-             io=gateIO(i=list("in01"=gval(type=float),
-                              "in02"=gval(type=float)),
-                       o=list("out"=gval(type=float)),
-                       params=list(2,1)));
+## #makeCompound <- function(name,
+
+## makeNerve("g.ner", fn=testf, 2)
+
+## g.n <- gate(gateList=list("nn1-1"=g.ner, "nn2-1"=g.ner, "nn1-2"=g.ner, "nn2-2"=g.ner, "nn1-3"=g.ner),
+##              cnxn=cnxnList("in01"=cnxns("nn1-1:in01","nn2-1:in01"),
+##                            "in02"=cnxns("nn1-1:in02","nn2-1:in02"),
+##                            "nn1-1:out"=cnxns("nn1-2:in01","nn2-2:in01"),
+##                            "nn2-1:out"=cnxns("nn1-2:in02","nn2-2:in02"),
+##                            "nn1-2:out"=cnxns("nn1-3:in01"),
+##                            "nn2-2:out"=cnxns("nn1-3:in02"),
+##                            "nn1-3:out"=cnxns("out")),
+##              io=gateIO(i=list("in01"=gval(type=float),
+##                               "in02"=gval(type=float)),
+##                        o=list("out"=gval(type=float)),
+##                        params=list(2,1)));
 
 
 
