@@ -3317,6 +3317,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
         ## This is an atomic gate, just return a single line with its data.
         out.nodeList <- rbind(out.nodeList,
                               data.frame(id=nodeID, label=prefix,
+                                         tooltip=prefix,
                                          color=g@color,
                                          shape=g@shape,
                                          type=g@nodetype,
@@ -3341,6 +3342,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
             if (prefix != "") prefixName <- paste0(prefix, ":", iname);
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(id=nodeID, label=prefixName,
+                                             tooltip=prefixName,
                                              color=g@color,
                                              shape=g@shape,
                                              type=g@nodetype,
@@ -3382,6 +3384,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
             if (prefix != "") prefixName <- paste0(prefix, ":", oname);
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(id=nodeID, label=prefixName,
+                                             tooltip=prefixName,
                                              color=g@color,
                                              shape=g@shape,
                                              type=g@nodetype,
@@ -3466,6 +3469,7 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="", edgeID=1) {
                       data.frame(id=edgeID,
                                  fromLabel=prefixedSource,
                                  toLabel=prefixedSink,
+                                 tooltip=paste0(sourceName, "->", sinkName),
                                  weight=as.numeric(g@cnxnList[[sourceName]][[sinkName]]@weight),
                                  color=g@cnxnList[[sourceName]][[sinkName]]@color,
                                  eid=g@cnxnList[[sourceName]][[sinkName]]@id,
@@ -3581,6 +3585,7 @@ gate.filterEdgeList <- function(edgeList, nodeList) {
                                             weight=edgeList$weight[i],
                                             color=edgeList$color[i],
                                             eid=edgeList$eid[i],
+                                            tooltip=edgeList$tooltip[i],
                                             stringsAsFactors=FALSE));
         }
     }
