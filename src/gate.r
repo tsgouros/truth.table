@@ -2102,6 +2102,31 @@ setMethod("setParam",
               return(object);
           });
 
+## Set a gate attribute to a given value.  For a compound gate, this sets all
+## the component gates to have that attribute value.
+setGeneric(name="setAttr",
+           def=function(object, attr, value) {
+               standardGeneric("setAttr");
+           });
+
+setMethod("setAttr",
+          signature="gate",
+          definition=function(object, attr, value) {
+              if (object@type == "atomic") {
+                  if (attr %in% slotNames(object)) {
+                      slot(object, attr) <- value;
+                  } else {
+                      cat("No slot called ", attr, ".\n");
+                  }
+              } else {
+                  ## A compound object.  Set the slots for all its members.
+                  for (name in names(object@gateList)) {
+                      object@gateList[[name]] <-
+                          setAttr(object@gateList[[name]], attr, value);
+                  }
+              }
+              return(object);
+          });
 ##
 ## You can use these to access and change members of a gate object, but you
 ## can't add things with them.  Use setParam() to add an entry to the
