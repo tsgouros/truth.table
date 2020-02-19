@@ -1637,6 +1637,8 @@ gate <- setClass(
             fontname="character",
             penwidth="numeric",
             style="character",
+            x="numeric",
+            y="numeric",
             ## These are generated.
             transform="function",
             transformOnce="function",
@@ -1689,6 +1691,9 @@ gate <- setClass(
 
         if (class(object@style) != "character")
             return("Style must be character, please.");
+
+        if ((class(object@x) != "numeric") || (class(object@y) != "numeric"))
+            return("Positions are specified with numbers, please.");
 
         return(TRUE);
     });
@@ -1788,6 +1793,8 @@ setMethod("initialize",
               .Object@fontname <- "Helvetica";
               .Object@penwidth <- 1.0;
               .Object@style <- "filled";
+              .Object@x <- NaN;
+              .Object@y <- NaN;
               ## Parse constructor arguments.
               args <- list(...);
 
@@ -2031,6 +2038,7 @@ setMethod("showShape",
               cat("penwidth = ", object@penwidth, "\n", sep="");
               cat("style    = ", object@style, "\n", sep="");
               cat("nodetype = ", object@nodetype, "\n", sep="");
+              cat("position = (", object@x, ",", object@y, ")\n", sep="");
           });
 
 setMethod("describe",
@@ -2109,16 +2117,23 @@ setGeneric(name="setAttr",
                standardGeneric("setAttr");
            });
 
+## Can do g <- setAttr(g, color, 'red') or setAttr(g, pos, c(1,2))
 setMethod("setAttr",
           signature="gate",
           definition=function(object, attr, value) {
               if (object@type == "atomic") {
                   if (attr %in% slotNames(object)) {
                       slot(object, attr) <- value;
+                  } else if (attr == "pos") {
+                      slot(object, "x") <- value[1];
+                      slot(object, "y") <- value[2];
                   } else {
-                      cat("No slot called ", attr, ".\n");
+                      cat("No slot called ", attr, ".\n", sep="");
                   }
               } else {
+                  ## Don't really want to set the position for all the
+                  ## members of a compound object.
+                  if (attr == "pos") return(object);
                   ## A compound object.  Set the slots for all its members.
                   for (name in names(object@gateList)) {
                       object@gateList[[name]] <-
@@ -3340,6 +3355,11 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
     ## Check gate type
     if (g@type == "atomic") {
         ## This is an atomic gate, just return a single line with its data.
+        if ((!is.nan(g@x)) && (!is.nan(g@y))) {
+            pos <- paste0(g@x,",",g@y,"!");
+        } else {
+            pos <- "";
+        }
         out.nodeList <- rbind(out.nodeList,
                               data.frame(id=nodeID, label=prefix,
                                          tooltip=prefix,
@@ -3351,11 +3371,12 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
                                          fontname=g@fontname,
                                          penwidth=g@penwidth,
                                          style=g@style,
+                                         pos=pos,
                                          gid=g@id,
                                          real=TRUE,
                                          stringsAsFactors=FALSE));
     } else {
-        ## This is a composite gate, and g@gateList is a list the gates it
+        ## This is a compound gate, and g@gateList is a list of the gates it
         ## contains.
 
         ## We are creating a graph node here for an imaginary thing, the
@@ -3376,6 +3397,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
                                              fontname=g@fontname,
                                              penwidth=g@penwidth,
                                              style=g@style,
+                                             pos="",
                                              gid=g@id,
                                              real=FALSE,
                                              stringsAsFactors=FALSE));
@@ -3418,6 +3440,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
                                              fontname=g@fontname,
                                              penwidth=g@penwidth,
                                              style=g@style,
+                                             pos="",
                                              gid=g@id,
                                              real=FALSE,
                                              stringsAsFactors=FALSE));
