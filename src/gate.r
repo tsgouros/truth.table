@@ -1639,7 +1639,8 @@ gate <- setClass(
             style="character",
             x="numeric",
             y="numeric",
-            radius="numeric",
+            height="numeric",
+            width="numeric",
             ## These are generated.
             transform="function",
             transformOnce="function",
@@ -1696,8 +1697,9 @@ gate <- setClass(
         if ((class(object@x) != "numeric") || (class(object@y) != "numeric"))
             return("Positions are specified with numbers, please.");
 
-        if (class(object@radius) != "numeric")
-            return("Radius is specified with a number, please.");
+        if ((class(object@height) != "numeric") ||
+            (class(object@width) != "numeric"))
+            return("Height and width are specified with numbers, please.");
 
         return(TRUE);
     });
@@ -1799,7 +1801,8 @@ setMethod("initialize",
               .Object@style <- "filled";
               .Object@x <- NaN;
               .Object@y <- NaN;
-              .Object@radius <- NaN;
+              .Object@height <- NaN;
+              .Object@width <- NaN;
               ## Parse constructor arguments.
               args <- list(...);
 
