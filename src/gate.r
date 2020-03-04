@@ -1639,6 +1639,7 @@ gate <- setClass(
             style="character",
             x="numeric",
             y="numeric",
+            radius="numeric",
             ## These are generated.
             transform="function",
             transformOnce="function",
@@ -1694,6 +1695,9 @@ gate <- setClass(
 
         if ((class(object@x) != "numeric") || (class(object@y) != "numeric"))
             return("Positions are specified with numbers, please.");
+
+        if (class(object@radius) != "numeric")
+            return("Radius is specified with a number, please.");
 
         return(TRUE);
     });
@@ -1795,9 +1799,11 @@ setMethod("initialize",
               .Object@style <- "filled";
               .Object@x <- NaN;
               .Object@y <- NaN;
+              .Object@radius <- NaN;
               ## Parse constructor arguments.
               args <- list(...);
 
+              noState <- TRUE;
               for (name in names(args)) {
                   if (name == "")
                       stop("All initialization args to gate need names.");
@@ -1806,8 +1812,8 @@ setMethod("initialize",
                   ## partial matches to the input args.  This allows us to
                   ## make it work even if the names are not spelled out
                   ## completely.
-                  noState <- TRUE;
                   slotIndex <- grepl(paste0("^", name), slotNames("gate"));
+
                   if (sum(slotIndex) == 1) {
                       slotIndex <- which(slotIndex);
                       slot(.Object, slotNames("gate")[slotIndex]) <-
