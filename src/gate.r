@@ -3550,7 +3550,8 @@ gate.edgeList <- function(g, inspect=FALSE, prefix="", edgeID=1) {
 nodeIndex <- function(label, nodeList) {
 
     ## First just check to see if the label is in the nodeList as is.
-    if (sum(grepl(paste0("^", label, "$"), nodeList$label))) {
+    labelPresent <- sum(grepl(paste0("^", label, "$"), nodeList$label));
+    if (labelPresent) {
         testIndex <- grep(paste0("^", label, "$"), nodeList$label);
 
         ## Should this throw an error, or just quietly return failure?
@@ -3570,7 +3571,8 @@ nodeIndex <- function(label, nodeList) {
         }
     } else {
         ## Drop the ":" suffix and try again.
-        if (grepl(":", label)) {
+        colonPresent <- sum(grepl(":", label));
+        if (colonPresent) {
             return(nodeIndex(strsplit(label, ":")[[1]][1], nodeList));
         } else {
             return(0);
@@ -3593,9 +3595,9 @@ gate.filterEdgeList <- function(edgeList, nodeList) {
 
         ## First, is this label actually connected to anything?  (grepl
         ## returns an array of T/F. sum() makes an ok "or".)
-        if (sum(grepl(paste0("^", toLabel), edgeList$toLabel))) {
-            fromIndex <- grep(paste0("^", toLabel), edgeList$toLabel);
-            fromLabel <- el$fromLabel[fromIndex];
+        if (sum(grepl(paste0("^", toLabel, "$"), edgeList$toLabel))) {
+            fromIndex <- grep(paste0("^", toLabel, "$"), edgeList$toLabel);
+            fromLabel <- edgeList$fromLabel[fromIndex];
 
             fromNode <- nodeIndex(fromLabel, nodeList);
 
