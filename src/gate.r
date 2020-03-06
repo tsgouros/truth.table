@@ -254,6 +254,7 @@ setMethod("add",
               for (name in names(args)) {
                   object@data[[name]] <- args[[name]];
               }
+              validObject(object);
               return(object);
           });
 
@@ -533,6 +534,7 @@ setMethod("add",
                   }
               }
               assign("cnxnIDCounter", cnxnIDCounter, envir = .GlobalEnv)
+              validObject(object);
               return(object);
           });
 
@@ -675,7 +677,10 @@ setMethod("is.empty",
 ## A couple of things to make a cnxnList act more like a list.
 setMethod("[[",
           signature="cnxnList",
-          definition=function(x, i, j, ...) { return(x@data[[i]]); });
+          definition=function(x, i, j, ...) {
+              if (is.numeric(i) && (i > length(x@data)))
+                  stop("index out of bounds:", i, " (max=", length(x@data), ")");
+              return(x@data[[i]]); });
 
 setMethod("$",
           signature="cnxnList",
@@ -701,15 +706,21 @@ setMethod("add",
           signature="cnxnList",
           definition=function(object, ...) {
               args <- list(...);
-              for (i in 1:length(args)) {
 
-                  if (class(args[[i]]) == "character") {
+              if (class(args[[1]]) == "cnxnList") inList <- args[[1]]
+              else inList <- args;
+
+              if (length(inList) == 0) stop("You are adding an empty list.");
+
+              for (i in 1:length(inList)) {
+
+                  if (class(inList[[i]]) == "character") {
                       ## If the argument is just a string, we assume it to be
                       ## a node name.  Turn it into a cnxn and put it in a
                       ## cnxns object.
-                      argToAdd <- cnxns(args[[i]]);
+                      argToAdd <- cnxns(inList[[i]]);
                   } else {
-                      argToAdd <- args[[i]];
+                      argToAdd <- inList[[i]];
                   }
 
                   ## We check for uniqueness.  A source can be connected to
@@ -728,14 +739,15 @@ setMethod("add",
 
                   if (!found) {
                       ## If the current source isn't represented, add it.
-                      if (!(names(args)[i] %in% names(object@data))) {
-                          object@data[[names(args)[i]]] <- cnxns();
+                      if (!(names(inList)[i] %in% names(object@data))) {
+                          object@data[[names(inList)[i]]] <- cnxns();
                       }
 
-                      object@data[[names(args)[i]]] <-
-                          add(object@data[[ names(args)[i]]], argToAdd);
+                      object@data[[names(inList)[i]]] <-
+                          add(object@data[[ names(inList)[i]]], argToAdd);
                   }
               }
+              validObject(object);
               return(object);
           });
 
@@ -898,6 +910,7 @@ setMethod("setVal",
                   object@numVal <- args[[1]];
               }
 
+              validObject(object);
               return(object);
           });
 
@@ -1621,7 +1634,23 @@ if (formatVal(add(gio, gateIO(out=list("out"=gval(43, integer))))) != "I: in1=5 
 ## However, if you're directly calling a gate that is a subsidiary of a
 ## larger compound gate, the results will not be reflected into the stateList
 ## of that parent gate.
-
+##
+## A word about positions.  A gate can have an x and y position, and a width
+## and height.  For an atomic gate, the width and height create a minimum
+## with which to exclude other gates from being placed.  For a compound gate,
+## the width and height are the borders within which the member gates will be
+## arranged, and the x,y specify the location of the center.  A gate's x,y
+## coordinates will be defined relative to the origin of the compound gate
+## that includes it.
+##
+## For either a compound or an atomic gate, the width and height are used to
+## locate the symbols for any unconnected inputs.  The inputs are arranged
+## along the line of y=0 and the outputs along y=height.
+##
+## Note also that the positions are irrelevant if you don't draw the graph,
+## and they're also irrelevant for several of the graph-drawing modes.  If
+## you don't specify a position for each gate, the positions and dimensions
+## will be ignored.
 gateIDCounter <- 0;
 gate <- setClass(
     "gate",
@@ -2150,6 +2179,40 @@ setMethod("setAttr",
                   }
               }
               return(object);
+          });
+
+## Need a function to return the physical location of some input or output.
+setGeneric(name="location",
+           def=function(object, name) {
+               standardGeneric("location");
+           });
+
+setMethod("location",
+          signature="gate",
+          definition=function(object, name) {
+              if ((is.nan(object@x)) || (is.nan(object@y))) {
+                  return(c(NaN, NaN));
+              }
+              if (object@type == "atomic") {
+                  return(c(object@x, object@y));
+              } else {
+                  ## Find name in io.
+                  if (name %in% names(object@io@inputs)) {
+                      nameIndex <-
+                          which(grepl(name, names(object@io@inputs)));
+                      return(c(object@x - (object@width/2) + nameIndex *
+                               (object@width / (length(object@io@inputs) + 1)),
+                               object@y - (object@height / 2)));
+                  } else if (name %in% names(object@io@outputs)) {
+                      nameIndex <-
+                          which(grepl(name, names(object@io@outputs)));
+                      return(c(object@x - (object@width/2) + nameIndex *
+                               (object@width / (length(object@io@outputs) + 1)),
+                               object@y + (object@height / 2)));
+                  } else {
+                      stop("can't find node name: ", name);
+                  }
+              }
           });
 ##
 ## You can use these to access and change members of a gate object, but you
@@ -3352,6 +3415,12 @@ gate.makeNodeList <- function(g, recurse=FALSE, prefix="") {
 ## This degree of control does not appear to be available through
 ## DiagrammeR.
 ##
+addPos <- function(strPos, pos) {
+    posFromStr <- as.numeric(strsplit(strPos, "[,!]")[[1]]);
+    outPos <- posFromStr + pos;
+    return(paste0(outPos[1], ",", outPos[2], "!"));
+}
+
 ##
 ## compiles a table of nodes for a gate for drawing them.  If the node is
 ## atomic, this is pretty simple.  If it is composite, the function is
@@ -3361,14 +3430,16 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
     ## Start with an empty node list.
     out.nodeList <- data.frame(stringsAsFactors=FALSE);
 
+    ## Does this gate have a position?
+    if ((!is.nan(g@x)) && (!is.nan(g@y))) {
+        posStr <- paste0(g@x,",",g@y,"!");
+    } else {
+        posStr <- "";
+    }
+
     ## Check gate type
     if (g@type == "atomic") {
         ## This is an atomic gate, just return a single line with its data.
-        if ((!is.nan(g@x)) && (!is.nan(g@y))) {
-            pos <- paste0(g@x,",",g@y,"!");
-        } else {
-            pos <- "";
-        }
         out.nodeList <- rbind(out.nodeList,
                               data.frame(id=nodeID, label=prefix,
                                          tooltip=prefix,
@@ -3380,7 +3451,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
                                          fontname=g@fontname,
                                          penwidth=g@penwidth,
                                          style=g@style,
-                                         pos=pos,
+                                         pos=posStr,
                                          gid=g@id,
                                          real=TRUE,
                                          stringsAsFactors=FALSE));
@@ -3392,9 +3463,16 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
         ## input to a composite gate.  It might be that the colors or shapes
         ## could be adjusted here to make it clear these are artificial
         ## constructs.
+        i <- 1;
         for (iname in names(g@io@inputs)) {
             prefixName <- iname;
             if (prefix != "") prefixName <- paste0(prefix, ":", iname);
+            if ((!is.nan(g@x)) && (!is.nan(g@y))) {
+                pos <- addPos(posStr, location(g, iname));
+            } else {
+                pos <- "";
+            }
+
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(id=nodeID, label=prefixName,
                                              tooltip=prefixName,
@@ -3406,11 +3484,12 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
                                              fontname=g@fontname,
                                              penwidth=g@penwidth,
                                              style=g@style,
-                                             pos="",
+                                             pos=pos,
                                              gid=g@id,
                                              real=FALSE,
                                              stringsAsFactors=FALSE));
             nodeID <- nodeID + 1;
+            i <- i + 1;
         }
 
         ## Sort through the subsidiary gates...
@@ -3419,6 +3498,13 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
             ## ... making a nodeList for each of them
             nodeSubList <- gate.nodeList(g@gateList[[name]], prefix=name,
                                     nodeID=nodeID);
+
+            if ((!is.nan(g@x)) && (!is.nan(g@y))) {
+                for (i in 1:(dim(nodeSubList)[1])) {
+                    nodeSubList$pos[i] <- addPos(nodeSubList$pos[i],
+                                                 c(g@x, g@y));
+                }
+            }
 
             ## The gate ID is arbitrary, just needs to be unique in this table.
             nodeID <- nodeID + dim(nodeSubList)[1];
@@ -3432,12 +3518,18 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
             out.nodeList <- rbind(out.nodeList, nodeSubList);
         }
 
-
         ## See note above about artifical input nodes.  This is the same
-        ## thing.
+        ## thing, but for output nodes.
+        i <- 1;
         for (oname in names(g@io@outputs)) {
             prefixName <- oname;
             if (prefix != "") prefixName <- paste0(prefix, ":", oname);
+            if ((!is.nan(g@x)) && (!is.nan(g@y))) {
+                pos <- addPos(posStr, location(g, oname));
+            } else {
+                pos <- "";
+            }
+
             out.nodeList <- rbind(out.nodeList,
                                   data.frame(id=nodeID, label=prefixName,
                                              tooltip=prefixName,
@@ -3449,7 +3541,7 @@ gate.nodeList <- function(g, prefix="", nodeID=1) {
                                              fontname=g@fontname,
                                              penwidth=g@penwidth,
                                              style=g@style,
-                                             pos="",
+                                             pos=pos,
                                              gid=g@id,
                                              real=FALSE,
                                              stringsAsFactors=FALSE));
